@@ -39,3 +39,10 @@ The original brief was cut off mid-way (after the Settings section); sections 7+
 - Gamepads are only exposed by browsers after the first button press, so the pad slot is now assigned unconditionally (and re-resolved every frame) instead of at match start; a connect/disconnect toast and a pad test card in Settings → Controls were added.
 - Player marker rings dimmed (thin, ~40% opacity). Motion smoothing: AI intent low-pass, interpolated stride/speed/state time for rendering, smoothed ball lookahead in the camera, paced FPS cap, MSAA by default on Medium+, radar throttled to ~30 Hz.
 - Player acceleration raised (9–14.5 m/s², brake ×1.6, softer turn penalty) and selection ring/arrow dimmed further (opacity 0.2, thinner).
+
+## Feel pass (v3 settings)
+- Kicks are released faster (frozen-ball delay 25–40 ms, power charge 0.7 s); taps use distance-weighted pass power and a firm shot; moving while kicking is only slowed 30 %. Default assists raised (pass 0.7, shot 0.55, cross 0.65) and stored settings migrate once (`version: 3`); assist now removes more aim error and pulls stick-aimed shots toward the corners.
+- Defending: tackle fires on press, bigger human tackle range, +14 % win chance and fewer fouls for human tacklers. Jockey (hold the contain button) caps speed at 62 %, removes the turn penalty, adds +30 % acceleration and blends in auto goal-side positioning.
+- Manual switch scores candidates by distance to the carrier / predicted ball, goal-side bonus and closing speed; the stick direction is a filter (from the current player), not the main criterion.
+- Camera: default broadcast/mobile/tele cameras ~22 % closer.
+- Kick-off: pre-kick everyone is clamped to their own half (defenders outside the circle); the kick-off pass is exact; for 3.2 s afterwards the receiving side's AI cannot advance across halfway, so the first touch always lands with the kicking team.

@@ -66,14 +66,14 @@ export const TOUCH_DEFAULT_LAYOUT: Record<string, TouchButtonLayout> = {
 
 export function defaultSettings(mobile: boolean): Settings {
   return {
-    version: 2,
+    version: 3,
     graphics: { preset: mobile ? 'Low' : 'Medium', custom: {}, fpsCap: mobile ? 60 : 0, showFps: false, grade: 'broadcast', autoDetected: false, resolutionScale: 1, ballTrail: true, weatherEffects: true },
     audio: { master: 0.8, music: 0.5, crowd: 0.8, sfx: 0.9, menuMusic: true, muteOnBlur: true, dynamicCrowd: true, ticker: true, tts: false },
     controls: {
       device: 'auto', keyboard: structuredClone(DEFAULT_KEYBOARD), keyboardP2: structuredClone(DEFAULT_KEYBOARD_P2), gamepad: structuredClone(DEFAULT_PAD),
       profile: 'Default', profiles: {}, sensitivity: 1, deadzone: 0.18, vibration: true, mouseAim: true,
       touch: { layout: structuredClone(TOUCH_DEFAULT_LAYOUT), opacity: 0.7, joystickSize: 1, joystickSensitivity: 1, skillMode: 'flick', autoAssist: 0.6, haptics: true, presets: {} },
-      assist: { pass: 0.5, shot: 0.35, cross: 0.5, keeper: 0.5, aim: 0.3, autoSwitch: true },
+      assist: { pass: 0.7, shot: 0.55, cross: 0.65, keeper: 0.6, aim: 0.45, autoSwitch: true },
       skillLoadout: [...DEFAULT_LOADOUT], skillOverrides: {}, skillBindings: {},
     },
     gameplay: {
@@ -103,6 +103,11 @@ class SettingsStore {
         this.value.controls.keyboard = d.controls.keyboard;
         this.value.graphics.fpsCap = d.graphics.fpsCap;
         this.value.version = 2;
+      }
+      if (prev < 3) {
+        // v3: stronger default passing/shooting assists
+        this.value.controls.assist = { ...defaultSettings(this.mobile).controls.assist };
+        this.value.version = 3;
         void storage.set('settings', this.value);
       }
     }

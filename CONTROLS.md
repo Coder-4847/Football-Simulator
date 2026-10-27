@@ -23,10 +23,10 @@ Controls are mapped to the same abstract actions on every device; on-screen prom
 ## Defending
 | Action | Gamepad | Keyboard | Touch |
 |---|---|---|---|
-| Switch player | B / LB | Q | SWITCH |
+| Switch player (nearest goal-side defender to the ball; hold a stick direction to pick that side) | B / LB | Q | SWITCH |
 | Tackle (tap) / press (hold) | A | J | TACKLE |
 | Slide | X | L | SLIDE |
-| Contain | LT | Space | CONTAIN |
+| Jockey / contain (hold; auto goal-side positioning) | LT | Space | CONTAIN |
 | Second presser | RB | E | 2ND PRESS |
 | Keeper charge | Y | K | KEEPER |
 | Clearance (ball near own box) | X | L | SLIDE (context) |

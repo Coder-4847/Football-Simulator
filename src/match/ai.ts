@@ -608,7 +608,7 @@ function aiTake(m: Match, sp: SetPiece): void {
   switch (sp.type) {
     case 'kickoff': {
       const mate = nearestMate(14, (t) => !t.isGK()) ?? mates.find((t) => !t.isGK()) ?? null;
-      if (mate) doPassSetPiece(m, taker, { kind: 'ground', tx: mate.x, ty: mate.y, receiver: mate, power: 0.3, assist: 0.8 });
+      if (mate) doPassSetPiece(m, taker, { kind: 'ground', tx: mate.x, ty: mate.y, receiver: mate, power: 0.3, assist: 1, sloppy: 0.001 });
       else m.forceResume();
       break;
     }

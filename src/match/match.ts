@@ -101,6 +101,8 @@ export class Match {
   missedOffside: { player: MPlayer; t: number } | null = null;
   varCheck: { kind: 'penalty' | 'red' | 'goal'; offender?: MPlayer; victim?: MPlayer; card?: 'yellow' | 'red' | null } | null = null;
   calledForPass: { player: MPlayer; until: number } | null = null;
+  /** after a kick-off the receiving side's AI holds its half briefly so the first pass always connects */
+  kickoffGuard: { side: Side; until: number } | null = null;
   pressCall: [number, number] = [0, 0];
   runRequest: { side: Side; until: number } | null = null;
   aiTakeSetPiece: ((m: Match, sp: SetPiece) => void) | null = null;
@@ -337,10 +339,16 @@ export class Match {
       const full = this.maxSpeed(p);
       const hasBall = this.owner === p;
       let cap = it.sprint && p.stamina > 0.04 ? full : full * 0.64;
-      if (it.jockey) cap = full * 0.5;
+      if (it.jockey) cap = full * 0.62;
       if (it.precise) cap = Math.min(cap, full * 0.42);
       if (hasBall) cap *= 0.94 + 0.05 * (a.dribbling / 100);
       let mx = it.mx, my = it.my;
+      if (p.human < 0 && this.kickoffGuard && this.time < this.kickoffGuard.until && p.side === this.kickoffGuard.side) {
+        // hold the line: no forward movement across the halfway line
+        const dd = this.teams[p.side].dir;
+        if (this.depth(p.side, p.x) > -1.5 && mx * dd > 0) { mx = 0; if (!my) my = 0; }
+        it.sprint = false;
+      }
       if (p.human < 0) {
         // AI intents are low-pass filtered so direction flips ease in instead of snapping
         const f = 1 - Math.exp(-11 * dt);
@@ -350,13 +358,13 @@ export class Match {
       if (mag > 1) { mx /= mag; my /= mag; }
       let wantVx = mx * cap, wantVy = my * cap;
 
-      let accel = 9 + 5.5 * (a.acceleration / 99);
+      let accel = (9 + 5.5 * (a.acceleration / 99)) * (it.jockey ? 1.3 : 1);
       let brake = accel * 1.6;
       switch (p.state) {
         case 'slide': { wantVx = 0; wantVy = 0; brake = 4.2; break; }
         case 'down': case 'save': { wantVx = 0; wantVy = 0; brake = 5; break; }
         case 'dive': { wantVx = 0; wantVy = 0; brake = 2.5; break; }
-        case 'kick': { wantVx *= 0.35; wantVy *= 0.35; break; }
+        case 'kick': { wantVx *= 0.7; wantVy *= 0.7; break; }
         case 'tackle': { wantVx *= 0.3; wantVy *= 0.3; break; }
         case 'celebrate': case 'wait': case 'throw': { if (p.state !== 'celebrate') { wantVx *= 0.2; wantVy *= 0.2; } break; }
         case 'stumble': { wantVx *= 0.4; wantVy *= 0.4; break; }
@@ -369,7 +377,8 @@ export class Match {
       // direction-change penalty: sharp turns reduce acceleration depending on agility
       const sp = Math.hypot(p.vx, p.vy);
       let turnPenalty = 1;
-      if (sp > 2 && mag > 0.1) {
+      if (it.jockey) turnPenalty = 1;
+      else if (sp > 2 && mag > 0.1) {
         const dot = (p.vx * mx + p.vy * my) / (sp * Math.max(mag, 1e-6));
         turnPenalty = lerp(0.6 + 0.3 * (a.agility / 99), 1, clamp01((dot + 0.3) / 1.3));
       }
@@ -383,6 +392,16 @@ export class Match {
         if (dl > step) { p.vx += (dvx / dl) * step; p.vy += (dvy / dl) * step; } else { p.vx = wantVx; p.vy = wantVy; }
       }
       p.x += p.vx * dt; p.y += p.vy * dt;
+      const ko = this.sp;
+      if (ko && ko.type === 'kickoff' && ko.phase !== 'done' && p !== ko.taker && !(p.isGK())) {
+        // before the kick-off every player stays in their own half; the defending side also stays out of the centre circle
+        const dd = this.teams[p.side].dir;
+        if (p.x * dd > -0.7) { p.x = -0.7 * dd; if (p.vx * dd > 0) p.vx = 0; }
+        if (p.side !== ko.side) {
+          const r = Math.hypot(p.x, p.y);
+          if (r < 10) { const k = 10 / (r || 1); p.x = r ? p.x * k : -dd * 10; p.y = r ? p.y * k : 0; if (p.x * dd > -0.7) p.x = -0.7 * dd; }
+        }
+      }
       // pitch margin (allow some run-off for throw-ins etc.)
       const mxL = HALF_L + 8, mxW = HALF_W + 4.5;
       p.x = clamp(p.x, -mxL, mxL); p.y = clamp(p.y, -mxW, mxW);
@@ -497,7 +516,7 @@ export class Match {
     }
     b.kick(vx, vy, vz, wx, wy, wz, knuckle);
     // the ball is held for a few ms so the striking animation reaches the ball first
-    b.frozen = tag.startsWith('shot:header') ? 0 : tag.startsWith('shot') ? 0.09 : tag === 'throw' ? 0.1 : tag.startsWith('pass') ? 0.06 : 0;
+    b.frozen = tag.startsWith('shot:header') ? 0 : tag.startsWith('shot') ? 0.04 : tag === 'throw' ? 0.08 : tag.startsWith('pass') ? 0.025 : 0;
     this.owner = null;
     this.setTouch(p, true);
     this.lastTouchByFoot = true;

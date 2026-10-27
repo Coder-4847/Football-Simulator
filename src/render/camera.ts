@@ -77,7 +77,7 @@ export class CameraDirector {
       switch (this.mode) {
         case 'tele': {
           const f = this.ballFocus(match, bx, bz, 0.45);
-          dp.set(f.x * 0.9, 17 * hs, f.z * 0.2 + 70 * zs); dl.set(f.x, 0, f.z * 0.85); desiredFov = 20; lambda = 2.4; break;
+          dp.set(f.x * 0.9, 14 * hs, f.z * 0.2 + 56 * zs); dl.set(f.x, 0, f.z * 0.85); desiredFov = 20; lambda = 2.4; break;
         }
         case 'coop': {
           const f = this.ballFocus(match, bx, bz, 0.4);
@@ -104,7 +104,7 @@ export class CameraDirector {
         }
         case 'mobile': {
           const f = this.ballFocus(match, bx, bz, 0.45);
-          dp.set(f.x * 0.92, 21 * hs, f.z * 0.25 + 27 * zs); dl.set(f.x, 0, f.z * 0.9 - 2); desiredFov = 44; lambda = 3.4; break;
+          dp.set(f.x * 0.92, 16 * hs, f.z * 0.25 + 20 * zs); dl.set(f.x, 0, f.z * 0.9 - 2); desiredFov = 42; lambda = 3.4; break;
         }
         case 'pro': {
           if (controlled) {
@@ -119,7 +119,7 @@ export class CameraDirector {
           const f = this.ballFocus(match, bx, bz, 0.4);
           // zoom out a touch for fast ball
           const spd = clamp(match.ball.speed() / 38, 0, 1);
-          dp.set(f.x * 0.88, 25 * hs * (1 + spd * 0.06), f.z * 0.22 + 38 * zs * (1 + spd * 0.08)); dl.set(f.x, 0, f.z * 0.88); desiredFov = 32;
+          dp.set(f.x * 0.88, 19.5 * hs * (1 + spd * 0.06), f.z * 0.22 + 29 * zs * (1 + spd * 0.08)); dl.set(f.x, 0, f.z * 0.88); desiredFov = 31;
         }
       }
     }
@@ -148,7 +148,7 @@ export class CameraDirector {
   }
 
   private simpleBroadcast(bx: number, bz: number, hs: number, zs: number, dp: Vector3, dl: Vector3): void {
-    dp.set(bx * 0.88, 25 * hs, bz * 0.22 + 38 * zs); dl.set(bx, 0, bz * 0.88);
+    dp.set(bx * 0.88, 19.5 * hs, bz * 0.22 + 29 * zs); dl.set(bx, 0, bz * 0.88);
   }
 
   private setpieceCam(m: Match, sp: NonNullable<Match['sp']>, controlled: MPlayer | null, dp: Vector3, dl: Vector3): boolean {

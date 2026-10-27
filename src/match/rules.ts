@@ -353,7 +353,7 @@ export function takeSetPiece(m: Match, act: () => void): void {
   m.sp = null;
   if (m.phase === 'setpiece') { m.phase = 'play'; m.phaseT = 0; }
   if (sp.type === 'penalty') m.penaltyKick = { taker: sp.taker!, t: m.time, side: sp.side };
-  if (sp.type === 'kickoff') m.bus.emit('whistle', { kind: 'start' });
+  if (sp.type === 'kickoff') { m.bus.emit('whistle', { kind: 'start' }); m.kickoffGuard = { side: other(sp.side), until: m.time + 3.2 }; }
 }
 
 // ---- executors used by human & AI for set-piece takes ----
@@ -469,11 +469,11 @@ function doTackle(m: Match, t: MPlayer, req: TackleReq): void {
   // auto-aim toward the ball owner / ball when assisted
   const refX = target ? target.x : b.x, refY = target ? target.y : b.y;
   const toRef = Math.hypot(refX - t.x, refY - t.y);
-  if (toRef < (slide ? 3.2 : 1.8) && (len < 0.01 || toRef < 3)) {
+  if (toRef < (slide ? 3.6 : 2.4) && (len < 0.01 || toRef < 3.4)) {
     ux = (refX - t.x) / (toRef || 1); uy = (refY - t.y) / (toRef || 1);
   }
   t.face = Math.atan2(uy, ux);
-  t.tackleCooldown = m.time + (slide ? 1.5 : 0.75);
+  t.tackleCooldown = m.time + (slide ? 1.2 : 0.5);
   t.stats.tackles++; m.teams[t.side].stats.tackles++;
   if (slide) {
     t.setState('slide', 0.95);
@@ -481,7 +481,7 @@ function doTackle(m: Match, t: MPlayer, req: TackleReq): void {
   } else {
     t.setState('tackle', 0.5);
   }
-  const range = slide ? 2.4 : 1.3;
+  const range = (slide ? 2.4 : 1.3) + (t.human >= 0 ? (slide ? 0.7 : 0.55) : 0);
   const att = t.data.attrs;
   const strict = m.cfg.refStrictness;
 
@@ -500,12 +500,12 @@ function doTackle(m: Match, t: MPlayer, req: TackleReq): void {
       const dot = ((t.x - target.x) * vf + (t.y - target.y) * vy) / (d || 1);
       const behind = dot < -0.45;
       const speedBonus = clamp((t.speed - target.speed) / 12, -0.1, 0.1);
-      let pWin = 0.5 + (atk - dribble) / 130 + speedBonus - (target.state === 'skill' ? 0.12 : 0);
+      let pWin = 0.5 + (t.human >= 0 ? 0.14 : 0) + (atk - dribble) / 130 + speedBonus - (target.state === 'skill' ? 0.12 : 0);
       if (slide) pWin = pWin * 0.92 + 0.02;
       if (t.data.traits.includes('Tackler')) pWin += 0.05;
       if (target.data.traits.includes('Press Proven')) pWin -= 0.05;
-      pWin = clamp(pWin, 0.1, 0.86);
-      let pFoul = (slide ? 0.34 : 0.17) * (0.5 + att.aggression / 90) * m.cfg.foulFrequency * (0.75 + strict * 0.5);
+      pWin = clamp(pWin, 0.1, 0.9);
+      let pFoul = (slide ? 0.3 : 0.14) * (t.human >= 0 ? 0.75 : 1) * (0.5 + att.aggression / 90) * m.cfg.foulFrequency * (0.75 + strict * 0.5);
       if (behind) pFoul *= 2.4;
       if (t.data.traits.includes('Tackler')) pFoul *= 0.85;
       const roll = m.rng.next();

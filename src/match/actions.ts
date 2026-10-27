@@ -82,7 +82,7 @@ export function executePass(m: Match, p: MPlayer, s: PassSpec): void {
   const assist = s.assist ?? 0.5;
   const speedFactor = clamp01(p.speed / 9);
   let sigma = (0.085 - 0.07 * (kindSkill / 100)) * (1 + press * 0.55 + speedFactor * 0.15 + (p.tired * 0.25)) * f.accMult * (s.sloppy ?? 1);
-  sigma *= 1 - assist * 0.55;
+  sigma *= 1 - assist * 0.68;
   if (s.power > 0.75) sigma *= 1 + (s.power - 0.75) * 1.4;
   const dist = Math.hypot(tx - b.x, ty - b.y);
   // kick-power quality: distance error
@@ -176,7 +176,7 @@ export function executeShot(m: Match, p: MPlayer, s: ShotSpec): { xg: number; sp
   sigma *= kindMult[s.kind];
   if (s.power > 0.8) sigma *= 1 + (s.power - 0.8) * 2.2;
   if (s.power < 0.25) sigma *= 1.1;
-  sigma *= 1 - (s.assist ?? 0) * 0.5;
+  sigma *= 1 - (s.assist ?? 0) * 0.6;
   if (p.data.traits.includes('Clinical Finisher') && dist < 22) sigma *= 0.82;
   if (p.data.traits.includes('Finesse Shot') && s.kind === 'finesse') sigma *= 0.85;
   if (p.data.traits.includes('Long Shot Taker') && dist > 20) sigma *= 0.85;

@@ -9,7 +9,9 @@ import { distSegPoint, secondLastDepth, zoneValue } from './ai';
 import { resolveLoadout, skillById } from './skills';
 import { startSkill } from './skillrun';
 
-const POWER_TIME = 0.85; // seconds to fully charge
+const POWER_TIME = 0.7; // seconds to fully charge
+
+function lerpN(a: number, b: number, t: number): number { return a + (b - a) * t; }
 
 export function chargeOf(h: HumanSlot, held: number): number { return clamp01(held / POWER_TIME); }
 
@@ -101,7 +103,7 @@ function ensurePlayer(m: Match, h: HumanSlot, idx: number): void {
     return;
   }
   // auto-switch when defending / loose
-  if (!m.cfg.assist.autoSwitch || h.manualSwitchT < 1.4) return;
+  if (!m.cfg.assist.autoSwitch || h.manualSwitchT < 1.0) return;
   if (m.tick % 8 !== 0) return;
   // a pass in flight from a teammate: switch to the receiver
   const pi = m.passInfo;
@@ -118,7 +120,7 @@ function ensurePlayer(m: Match, h: HumanSlot, idx: number): void {
   if (near && near !== h.player) {
     const dNew = Math.hypot(near.x - m.ball.x, near.y - m.ball.y);
     const dOld = Math.hypot(h.player.x - m.ball.x, h.player.y - m.ball.y);
-    if (dNew + 3.5 < dOld) setSelected(m, h, idx, near);
+    if (dNew + 2.2 < dOld) setSelected(m, h, idx, near);
   }
 }
 
@@ -196,7 +198,9 @@ function shotAim(m: Match, p: MPlayer, h: HumanSlot, power: number): { aimY: num
     const gkY = gk ? gk.y * dir : 0;
     aimY = (gkY > 0 ? -1 : 1) * (0.55 + 0.25 * m.rng.next());
   } else if (assist > 0) {
-    aimY = clamp(aimY * (1 + assist * 0.2), -0.98, 0.98);
+    // stick pulls the shot toward the corner on that side, and snaps to a sensible spot inside the frame
+    aimY = clamp(aimY * (1 + assist * 0.35), -0.92, 0.92);
+    if (Math.abs(aimY) > 0.35) aimY = Math.sign(aimY) * lerpN(Math.abs(aimY), 0.78, assist * 0.5);
   }
   const aimH = clamp(0.25 + 0.3 * power + 0.25 * (inp.mx * dir), 0.1, 0.95);
   return { aimY, aimH };
@@ -255,7 +259,8 @@ function attackControls(m: Match, h: HumanSlot, idx: number, p: MPlayer): void {
   if (inp.released.b1) {
     const power = clamp(inp.heldAtRelease.b1 / POWER_TIME, 0.05, 1);
     const ch = pickPassTarget(m, p, sx, sy, 'ground', assistP);
-    const spec: PassSpec = { kind: 'ground', tx: ch.tx, ty: ch.ty, receiver: ch.target, power: inp.heldAtRelease.b1 < 0.18 ? 0.3 : power, assist: assistP };
+    const tapPow = clamp(0.28 + Math.hypot(ch.tx - p.x, ch.ty - p.y) / 55, 0.3, 0.72);
+    const spec: PassSpec = { kind: 'ground', tx: ch.tx, ty: ch.ty, receiver: ch.target, power: inp.heldAtRelease.b1 < 0.2 ? tapPow : Math.max(power, 0.3), assist: assistP };
     executePass(m, p, spec);
     if (ch.target) switchToReceiver(m, h, idx, ch.target);
     return;
@@ -264,7 +269,7 @@ function attackControls(m: Match, h: HumanSlot, idx: number, p: MPlayer): void {
     const power = clamp(inp.heldAtRelease.b2 / POWER_TIME, 0.05, 1);
     const kind: PassKind = modA ? 'throughLob' : 'through';
     const ch = pickPassTarget(m, p, sx, sy, 'through', assistP);
-    executePass(m, p, { kind: kind === 'throughLob' ? 'lob' : 'through', tx: ch.tx, ty: ch.ty, receiver: ch.target, power: inp.heldAtRelease.b2 < 0.18 ? 0.5 : 0.35 + power * 0.65, assist: assistP });
+    executePass(m, p, { kind: kind === 'throughLob' ? 'lob' : 'through', tx: ch.tx, ty: ch.ty, receiver: ch.target, power: inp.heldAtRelease.b2 < 0.2 ? 0.55 : 0.35 + power * 0.65, assist: assistP });
     if (ch.target) switchToReceiver(m, h, idx, ch.target);
     return;
   }
@@ -289,7 +294,7 @@ function attackControls(m: Match, h: HumanSlot, idx: number, p: MPlayer): void {
     return;
   }
   if (inp.released.b4) {
-    const power = clamp(inp.heldAtRelease.b4 / POWER_TIME, 0.1, 1);
+    const power = inp.heldAtRelease.b4 < 0.15 ? 0.6 : clamp(inp.heldAtRelease.b4 / POWER_TIME, 0.35, 1);
     const kind: ShotKind = modB ? 'finesse' : modA ? 'chip' : inp.down.precise ? 'driven' : power > 0.92 ? 'power' : 'normal';
     const { aimY, aimH } = shotAim(m, p, h, power);
     executeShot(m, p, { kind, aimY, aimH, power, assist: m.cfg.assist.shot });
@@ -332,9 +337,19 @@ function defendControls(m: Match, h: HumanSlot, idx: number, p: MPlayer): void {
   const b = m.ball;
   // contain / jockey
   if (inp.down.precise) {
-    it.jockey = true;
+    it.jockey = true; it.sprint = false;
     const tx = owner ? owner.x : b.x, ty = owner ? owner.y : b.y;
     it.faceAngle = Math.atan2(ty - p.y, tx - p.x);
+    // jockey assist: stay goal-side of the carrier and mirror them, blending with the stick
+    const ownX = -m.teams[p.side].dir * HALF_L;
+    const dRef = Math.hypot(tx - p.x, ty - p.y);
+    if (owner && dRef < 14) {
+      const ux = ownX - owner.x, uy = -owner.y; const ul = Math.hypot(ux, uy) || 1;
+      const gx = owner.x + (ux / ul) * 1.7 + owner.vx * 0.15, gy = owner.y + (uy / ul) * 1.7 + owner.vy * 0.15;
+      const ddx = gx - p.x, ddy = gy - p.y; const dd = Math.hypot(ddx, ddy);
+      const w = (Math.hypot(it.mx, it.my) < 0.15 ? 0.95 : 0.3) * clamp01(dd / 1.2);
+      it.mx = it.mx * (1 - w) + (ddx / (dd || 1)) * w; it.my = it.my * (1 - w) + (ddy / (dd || 1)) * w;
+    }
   }
   // hold tackle = press: steer towards the carrier
   if (inp.down.b1 && inp.held.b1 > 0.18) {
@@ -344,7 +359,8 @@ function defendControls(m: Match, h: HumanSlot, idx: number, p: MPlayer): void {
     it.mx = it.mx * (1 - w) + (dx / d) * w; it.my = it.my * (1 - w) + (dy / d) * w;
     it.sprint = d > 3;
   }
-  if (inp.released.b1 && inp.heldAtRelease.b1 < 0.3) {
+  // tackle fires the instant the button goes down (tap), holding then presses
+  if (inp.pressed.b1) {
     requestTackle(p, false, owner ? owner.x - p.x : b.x - p.x, owner ? owner.y - p.y : b.y - p.y);
   }
   // b3: slide, or clear when the ball is loose near our box
@@ -376,30 +392,40 @@ function executeClear(m: Match, p: MPlayer, h: HumanSlot): void {
 
 export function manualSwitch(m: Match, h: HumanSlot, idx: number, p: MPlayer): void {
   const inp = h.input;
-  const ref = m.owner && m.owner.side !== h.side ? m.owner : null;
-  const bx = ref ? ref.x : m.ball.x, by = ref ? ref.y : m.ball.y;
-  const hasDir = Math.hypot(inp.rx, inp.ry) > 0.4 || Math.hypot(inp.mx, inp.my) > 0.4;
-  const dx = Math.hypot(inp.rx, inp.ry) > 0.4 ? inp.rx : inp.mx;
-  const dy = Math.hypot(inp.rx, inp.ry) > 0.4 ? inp.ry : inp.my;
-  const target = hasDir
-    ? bestInDirection(m, h, idx, p, dx, dy)
-    : nearestTo(m, h, idx, bx, by, p);
-  if (target) { setSelected(m, h, idx, target); h.manualSwitchT = 0; }
-}
-
-function bestInDirection(m: Match, h: HumanSlot, idx: number, p: MPlayer, dx: number, dy: number): MPlayer | null {
+  const b = m.ball;
+  const carrier = m.owner && m.owner.side !== h.side ? m.owner : null;
+  // reference point: the opposing carrier, else where the ball will be shortly (or where a pass is headed)
+  const pi = m.passInfo;
+  let rx = b.x + b.vx * 0.45, ry = b.y + b.vy * 0.45;
+  if (carrier) { rx = carrier.x + carrier.vx * 0.2; ry = carrier.y + carrier.vy * 0.2; }
+  else if (pi && pi.passer.side !== h.side && pi.receiver && !pi.completed) { rx = pi.receiver.x; ry = pi.receiver.y; }
+  const stickR = Math.hypot(inp.rx, inp.ry) > 0.4;
+  const stickL = Math.hypot(inp.mx, inp.my) > 0.4;
+  const dirAng = stickR ? Math.atan2(inp.ry, inp.rx) : stickL ? Math.atan2(inp.my, inp.mx) : null;
+  const ownX = -m.teams[h.side].dir * HALF_L;
   let best: MPlayer | null = null; let bs = 1e9;
-  const a = Math.atan2(dy, dx);
   for (const q of m.teams[h.side].players) {
     if (!q.active() || q === p || (q.isGK() && !h.keeperOnly)) continue;
     if (m.humans.some((o, j) => j !== idx && o.player === q)) continue;
-    const d = Math.hypot(q.x - p.x, q.y - p.y);
-    const ang = Math.abs(angleDiff(a, Math.atan2(q.y - p.y, q.x - p.x)));
-    if (ang > 1.2) continue;
-    const s = ang * 6 + d * 0.5 + Math.hypot(q.x - m.ball.x, q.y - m.ball.y) * 0.3;
+    const d = Math.hypot(q.x - rx, q.y - ry);
+    let s = d;
+    // goal-side players (between the ball and our goal) are the ones that can actually defend
+    const dir = m.teams[h.side].dir;
+    if ((q.x - rx) * dir < 0.5) s -= 2.2;
+    // already running towards the ball
+    const closing = ((rx - q.x) * q.vx + (ry - q.y) * q.vy) / (d || 1);
+    s -= clamp(closing, 0, 7) * 0.35;
+    if (dirAng !== null) {
+      // stick = "the player over there": direction measured from the current player
+      const ang = Math.abs(angleDiff(dirAng, Math.atan2(q.y - p.y, q.x - p.x)));
+      if (ang > 1.45) continue;
+      s += ang * 5;
+    }
+    if (Math.hypot(q.x - ownX, q.y) < 6 && !carrier) s += 4;
     if (s < bs) { bs = s; best = q; }
   }
-  return best ?? nearestTo(m, h, idx, m.ball.x, m.ball.y, p);
+  best ??= nearestTo(m, h, idx, rx, ry, p);
+  if (best) { setSelected(m, h, idx, best); h.manualSwitchT = 0; }
 }
 
 // ---------- goalkeeper ----------
@@ -473,7 +499,7 @@ function setPieceControls(m: Match, h: HumanSlot, idx: number, p: MPlayer, ctx: 
     case 'kickoff': {
       for (const b of ['b1', 'b2', 'b3', 'b4'] as const) if (inp.released[b]) {
         const ch = pickPassTarget(m, p, inp.mx, inp.my, 'ground', 0.9);
-        doPassSetPiece(m, p, { kind: 'ground', tx: ch.tx, ty: ch.ty, receiver: ch.target, power: 0.3, assist: 0.9 });
+        doPassSetPiece(m, p, { kind: 'ground', tx: ch.tx, ty: ch.ty, receiver: ch.target, power: 0.3, assist: 1, sloppy: 0.001 });
         if (ch.target) switchToReceiver(m, h, idx, ch.target);
         return;
       }
