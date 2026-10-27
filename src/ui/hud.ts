@@ -115,8 +115,12 @@ export class Hud {
     this.pens.innerHTML = `<div>${this.match.teams[0].short}  ${row(0)}</div><div>${this.match.teams[1].short}  ${row(1)}</div>`;
   }
 
+  private radarT = 0;
   private updateRadar(): void {
     if (!settings.value.gameplay.radar) return;
+    const now = performance.now();
+    if (now - this.radarT < 33) return;
+    this.radarT = now;
     const c = this.radar.getContext('2d')!;
     const W = this.radar.width, H = this.radar.height;
     c.clearRect(0, 0, W, H);
@@ -148,7 +152,7 @@ export class Hud {
       const bar = (l.lastChild as HTMLElement); bar.style.display = settings.value.gameplay.staminaBars ? 'block' : 'none';
       (bar.firstChild as HTMLElement).style.width = `${Math.round(p.stamina * 100)}%`;
       (bar.firstChild as HTMLElement).style.background = p.stamina < 0.3 ? 'var(--danger)' : p.stamina < 0.55 ? 'var(--warn)' : 'var(--accent)';
-      l.style.borderBottom = `2px solid ${p.human === 0 ? '#3b82f6' : p.human === 1 ? '#ef4444' : 'transparent'}`;
+      l.style.borderBottom = `2px solid ${p.human === 0 ? 'rgba(59,130,246,.6)' : p.human === 1 ? 'rgba(239,68,68,.6)' : 'transparent'}`;
     });
   }
 

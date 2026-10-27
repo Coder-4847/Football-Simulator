@@ -34,12 +34,17 @@ export interface Settings {
   };
 }
 
+/**
+ * Two-handed layout. Left hand: WASD + Shift (sprint) + Space (precision/shield, thumb) + Q/E (modifiers).
+ * Right hand rests on J K L with I above: pass, through, lob, shoot; U O M . are the four skill slots.
+ * Arrow keys / 1-4 still work as alternates for skill moves.
+ */
 export const DEFAULT_KEYBOARD: KeyBindings = {
   up: ['KeyW'], down: ['KeyS'], left: ['KeyA'], right: ['KeyD'],
   rUp: ['ArrowUp'], rDown: ['ArrowDown'], rLeft: ['ArrowLeft'], rRight: ['ArrowRight'],
   b1: ['KeyJ'], b2: ['KeyK'], b3: ['KeyL'], b4: ['KeyI'],
-  sprint: ['ShiftLeft', 'ShiftRight'], precise: ['ControlLeft', 'ControlRight'], modA: ['KeyQ'], modB: ['KeyE', 'Space'], skillBtn: ['KeyR'],
-  skill1: ['Digit1'], skill2: ['Digit2'], skill3: ['Digit3'], skill4: ['Digit4'], pause: ['Escape', 'KeyP'],
+  sprint: ['ShiftLeft', 'ShiftRight'], precise: ['Space', 'ControlLeft'], modA: ['KeyQ'], modB: ['KeyE'], skillBtn: ['KeyR'],
+  skill1: ['KeyU', 'Digit1'], skill2: ['KeyO', 'Digit2'], skill3: ['KeyM', 'Digit3'], skill4: ['Period', 'Digit4'], pause: ['Escape', 'KeyP'],
 };
 export const DEFAULT_KEYBOARD_P2: KeyBindings = {
   up: ['ArrowUp'], down: ['ArrowDown'], left: ['ArrowLeft'], right: ['ArrowRight'],
@@ -61,8 +66,8 @@ export const TOUCH_DEFAULT_LAYOUT: Record<string, TouchButtonLayout> = {
 
 export function defaultSettings(mobile: boolean): Settings {
   return {
-    version: 1,
-    graphics: { preset: mobile ? 'Low' : 'Medium', custom: {}, fpsCap: 60, showFps: false, grade: 'broadcast', autoDetected: false, resolutionScale: 1, ballTrail: true, weatherEffects: true },
+    version: 2,
+    graphics: { preset: mobile ? 'Low' : 'Medium', custom: {}, fpsCap: mobile ? 60 : 0, showFps: false, grade: 'broadcast', autoDetected: false, resolutionScale: 1, ballTrail: true, weatherEffects: true },
     audio: { master: 0.8, music: 0.5, crowd: 0.8, sfx: 0.9, menuMusic: true, muteOnBlur: true, dynamicCrowd: true, ticker: true, tts: false },
     controls: {
       device: 'auto', keyboard: structuredClone(DEFAULT_KEYBOARD), keyboardP2: structuredClone(DEFAULT_KEYBOARD_P2), gamepad: structuredClone(DEFAULT_PAD),
@@ -89,7 +94,18 @@ class SettingsStore {
 
   async load(): Promise<void> {
     const stored = await storage.get<Partial<Settings>>('settings');
-    if (stored) this.value = deepMerge(defaultSettings(this.mobile), stored);
+    if (stored) {
+      const prev = (stored as { version?: number }).version ?? 1;
+      this.value = deepMerge(defaultSettings(this.mobile), stored);
+      if (prev < 2) {
+        // v2: new two-handed keyboard layout, uncapped frame pacing on desktop, softer defaults
+        const d = defaultSettings(this.mobile);
+        this.value.controls.keyboard = d.controls.keyboard;
+        this.value.graphics.fpsCap = d.graphics.fpsCap;
+        this.value.version = 2;
+        void storage.set('settings', this.value);
+      }
+    }
     this.emit();
   }
 

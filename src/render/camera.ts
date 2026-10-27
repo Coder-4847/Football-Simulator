@@ -36,6 +36,10 @@ export class CameraDirector {
   private fov = 32;
   private shake = 0;
   private tmp = new Vector3();
+  private dp = new Vector3();
+  private dl = new Vector3();
+  private sbvx = 0;
+  private sbvz = 0;
   private playerFace = 0;
   private lastSet = '';
 
@@ -45,7 +49,7 @@ export class CameraDirector {
 
   private ballFocus(match: Match, ax: number, az: number, lookAhead: number): Vector3 {
     const b = match.ball;
-    const x = ax + b.vx * lookAhead, z = az + b.vy * lookAhead;
+    const x = ax + this.sbvx * lookAhead, z = az + this.sbvz * lookAhead;
     return this.tmp.set(clamp(x, -HALF_L - 6, HALF_L + 6), 0, clamp(z, -HALF_W - 4, HALF_W + 4));
   }
 
@@ -58,7 +62,9 @@ export class CameraDirector {
     const set = match.sp && match.sp.phase !== 'done' ? match.sp : null;
     const dir = controlled ? match.teams[controlled.side].dir : match.teams[0].dir;
     const cin = this.cinematic;
-    const dp = new Vector3(), dl = new Vector3();
+    const dp = this.dp, dl = this.dl;
+    const kv = 1 - Math.exp(-3.5 * dt);
+    this.sbvx += (b.vx - this.sbvx) * kv; this.sbvz += (b.vy - this.sbvz) * kv;
 
     if (cin) {
       this.cinematicShot(cin, match, bx, bz, dp, dl);

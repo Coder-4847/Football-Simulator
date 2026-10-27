@@ -293,7 +293,7 @@ export class Match {
 
   private savePrev(): void {
     this.ball.savePrev();
-    for (const p of this.all) { p.px = p.x; p.py = p.y; p.pface = p.face; }
+    for (const p of this.all) { p.px = p.x; p.py = p.y; p.pface = p.face; p.pvx = p.vx; p.pvy = p.vy; p.pstride = p.stride; p.pstateT = p.stateT; }
     for (const t of this.teams) for (const p of t.players) if (!p.active()) { p.px = p.x; p.py = p.y; }
   }
 
@@ -341,6 +341,11 @@ export class Match {
       if (it.precise) cap = Math.min(cap, full * 0.42);
       if (hasBall) cap *= 0.94 + 0.05 * (a.dribbling / 100);
       let mx = it.mx, my = it.my;
+      if (p.human < 0) {
+        // AI intents are low-pass filtered so direction flips ease in instead of snapping
+        const f = 1 - Math.exp(-11 * dt);
+        p.smx += (mx - p.smx) * f; p.smy += (my - p.smy) * f; mx = p.smx; my = p.smy;
+      } else { p.smx = mx; p.smy = my; }
       const mag = Math.hypot(mx, my);
       if (mag > 1) { mx /= mag; my /= mag; }
       let wantVx = mx * cap, wantVy = my * cap;
@@ -386,7 +391,7 @@ export class Match {
       const spd = Math.hypot(p.vx, p.vy);
       let targetFace = p.face;
       if (it.faceAngle !== null) targetFace = it.faceAngle;
-      else if (spd > 0.5) targetFace = Math.atan2(p.vy, p.vx);
+      else if (spd > 0.9) targetFace = Math.atan2(p.vy, p.vx);
       else if (mag > 0.2) targetFace = Math.atan2(my, mx);
       const turnRate = (hasBall ? 7 : 9) + 5 * (a.agility / 99) - spd * 0.35;
       if (p.state === 'normal' || p.state === 'kick' || p.state === 'jump' || p.state === 'celebrate') p.face = dampAngle(p.face, targetFace, Math.max(4, turnRate), dt);

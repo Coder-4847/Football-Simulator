@@ -31,6 +31,7 @@ export class InputManager {
   touch: TouchControls | null = null;
   active: Device = 'keyboard';
   onDevice: ((d: Device) => void) | null = null;
+  onPad: ((id: string | null) => void) | null = null;
   /** radians to rotate stick input by (camera yaw) */
   yaw = 0;
   aimMode = false;
@@ -56,7 +57,8 @@ export class InputManager {
     this.listen(window, 'mouseup', (e) => this.onMouse(e as MouseEvent, false));
     this.listen(target, 'contextmenu', (e) => e.preventDefault());
     this.listen(window, 'mousemove', (e) => this.onMouseMove(e as MouseEvent));
-    this.listen(window, 'gamepadconnected', () => this.setDevice('gamepad'));
+    this.listen(window, 'gamepadconnected', (e) => { this.setDevice('gamepad'); this.onPad?.((e as GamepadEvent).gamepad.id); });
+    this.listen(window, 'gamepaddisconnected', () => this.onPad?.(null));
     this.listen(window, 'pointerdown', (e) => { const pt = (e as PointerEvent).pointerType; if (pt === 'touch') { this.lastTouchAt = performance.now(); this.setDevice('touch'); } else if (pt === 'mouse' && withTouch && this.active === 'touch') this.setDevice('keyboard'); }, true);
     if (isMobile()) this.active = 'touch';
     settings.on(() => this.rebuild());
@@ -192,7 +194,8 @@ export class InputManager {
 
     // ---- gamepad
     if (s.scheme.pad !== null) {
-      const pads = navigator.getGamepads?.() ?? [];
+      // pick the Nth *connected* pad (browsers keep empty slots and hide pads until a button is pressed)
+      const pads = [...(navigator.getGamepads?.() ?? [])].filter((g): g is Gamepad => !!g && g.connected);
       const pad = pads[s.scheme.pad] ?? null;
       if (pad && pad.connected) {
         const dz = c.deadzone;

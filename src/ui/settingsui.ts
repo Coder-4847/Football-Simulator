@@ -45,7 +45,7 @@ export function buildSettings(parent: HTMLElement, input: InputManager | null, o
     { tab: 'Graphics', name: 'Quality preset', desc: 'Low · Medium · High · Ultra. Mobile defaults to Low.', build: () => seg<QualityName>([['Low', 'Low'], ['Medium', 'Medium'], ['High', 'High'], ['Ultra', 'Ultra'], ['Custom', 'Custom']], () => s().graphics.preset, (v) => upd((x) => { x.graphics.preset = v; })) },
     { tab: 'Graphics', name: 'Resolution scale', desc: 'Render resolution multiplier.', build: () => range(() => s().graphics.resolutionScale, (v) => upd((x) => { x.graphics.resolutionScale = v; }), 0.5, 1.5, 0.05) },
     { tab: 'Graphics', name: 'Shadows', desc: 'Custom preset only.', build: () => select([['off', 'Off'], ['low', 'Low'], ['medium', 'Medium'], ['high', 'High']] as Array<['off' | 'low' | 'medium' | 'high', string]>, () => s().graphics.custom.shadows ?? PRESETS.High.shadows, (v) => upd((x) => { x.graphics.custom.shadows = v; x.graphics.custom.shadowMapSize = v === 'high' ? 4096 : v === 'medium' ? 2048 : 1024; x.graphics.preset = 'Custom'; })) },
-    { tab: 'Graphics', name: 'Anti-aliasing', desc: 'Custom preset only.', build: () => select([['off', 'Off'], ['fxaa', 'FXAA'], ['smaa', 'SMAA']] as Array<['off' | 'fxaa' | 'smaa', string]>, () => s().graphics.custom.antialias ?? 'smaa', (v) => upd((x) => { x.graphics.custom.antialias = v; x.graphics.preset = 'Custom'; })) },
+    { tab: 'Graphics', name: 'Anti-aliasing', desc: 'Custom preset only.', build: () => select([['off', 'Off'], ['fxaa', 'FXAA'], ['smaa', 'SMAA'], ['msaa', 'MSAA 4×']] as Array<['off' | 'fxaa' | 'smaa' | 'msaa', string]>, () => s().graphics.custom.antialias ?? 'msaa', (v) => upd((x) => { x.graphics.custom.antialias = v; x.graphics.preset = 'Custom'; })) },
     { tab: 'Graphics', name: 'Bloom', build: () => toggle(() => s().graphics.custom.bloom ?? PRESETS[(s().graphics.preset === 'Custom' ? 'High' : s().graphics.preset) as 'High'].bloom, (v) => upd((x) => { x.graphics.custom.bloom = v; x.graphics.preset = 'Custom'; })) },
     { tab: 'Graphics', name: 'Film grain', build: () => toggle(() => s().graphics.custom.filmGrain ?? false, (v) => upd((x) => { x.graphics.custom.filmGrain = v; x.graphics.preset = 'Custom'; })) },
     { tab: 'Graphics', name: 'Motion blur', build: () => toggle(() => s().graphics.custom.motionBlur ?? false, (v) => upd((x) => { x.graphics.custom.motionBlur = v; x.graphics.preset = 'Custom'; })) },
@@ -118,7 +118,7 @@ export function buildSettings(parent: HTMLElement, input: InputManager | null, o
     for (const it of list) card.appendChild(h('div', { class: 'setting' }, h('div', null, h('div', { class: 'name' }, it.name, query ? h('span', { class: 'pill', style: 'margin-left:8px' }, it.tab) : null), it.desc ? h('div', { class: 'desc' }, it.desc) : null), h('div', { class: 'ctl' }, it.build())));
     if (!list.length) card.appendChild(h('div', { class: 'muted' }, 'No settings match your search.'));
     body.appendChild(card);
-    if (!query && tab === 'Controls') { body.appendChild(rebindingCard(input)); body.appendChild(skillCard()); }
+    if (!query && tab === 'Controls') { body.appendChild(padTestCard()); body.appendChild(rebindingCard(input)); body.appendChild(skillCard()); }
     if (!query && tab === 'Gameplay') body.appendChild(dataCard());
   };
 
@@ -180,6 +180,19 @@ function rebindingCard(input: InputManager | null): HTMLElement {
     }, 50);
   };
   render();
+  return card;
+}
+
+// ---------------------------------------------------------------- controller test
+function padTestCard(): HTMLElement {
+  const info = h('div', { class: 'muted', style: 'font-size:13px;line-height:1.7;font-variant-numeric:tabular-nums' }, 'Press any button on your controller…');
+  const card = h('div', { class: 'card', style: 'margin-top:16px' }, h('h3', null, 'Controller test'), info);
+  const iv = setInterval(() => {
+    if (!card.isConnected) { clearInterval(iv); return; }
+    const pads = [...(navigator.getGamepads?.() ?? [])].filter((g): g is Gamepad => !!g && g.connected);
+    if (!pads.length) { info.textContent = 'No controller detected. Connect it and press a button (browsers hide controllers until then).'; return; }
+    info.innerHTML = pads.map((p, i) => `<b>Pad ${i + 1}:</b> ${p.id.slice(0, 60)} · mapping: ${p.mapping || 'non-standard'}<br>Sticks: L ${p.axes[0]?.toFixed(2)}, ${p.axes[1]?.toFixed(2)} · R ${p.axes[2]?.toFixed(2)}, ${p.axes[3]?.toFixed(2)}<br>Pressed: ${p.buttons.map((b, k) => (b.pressed ? padLabel(k) : '')).filter(Boolean).join(' ') || '—'}`).join('<br>');
+  }, 100);
   return card;
 }
 

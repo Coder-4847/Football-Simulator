@@ -12,6 +12,7 @@ export class GameLoop {
   private acc = 0;
   private running = false;
   private lastRender = 0;
+  private nextFrame = 0;
   timeScale = 1;
   /** 0 = uncapped */
   fpsCap = 0;
@@ -29,7 +30,12 @@ export class GameLoop {
     const frame = (now: number): void => {
       if (!this.running) return;
       this.raf = requestAnimationFrame(frame);
-      if (this.fpsCap > 0 && now - this.lastRender < 1000 / this.fpsCap - 1.5) return;
+      if (this.fpsCap > 0) {
+        // pace against an ideal schedule (not the previous frame) so refresh-rate jitter doesn't drop frames
+        const iv = 1000 / this.fpsCap;
+        if (now + 2 < this.nextFrame) return;
+        this.nextFrame = now - this.nextFrame > iv * 2 ? now + iv : this.nextFrame + iv;
+      }
       this.lastRender = now;
       const dt = Math.min((now - this.last) / 1000, 0.25);
       this.last = now;

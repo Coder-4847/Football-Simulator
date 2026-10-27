@@ -48,6 +48,7 @@ export class App {
     const unlock = (): void => { audio.unlock(); audio.startMusic('menu'); window.removeEventListener('pointerdown', unlock); window.removeEventListener('keydown', unlock); };
     window.addEventListener('pointerdown', unlock); window.addEventListener('keydown', unlock);
     document.addEventListener('contextmenu', (e) => e.preventDefault());
+    this.input.onPad = (id): void => toast(id ? `Controller connected: ${id.slice(0, 40)}` : 'Controller disconnected');
     await new Promise((r) => setTimeout(r, 120));
     if (!settings.value.graphics.autoDetected) {
       const guess = detectPreset();
@@ -99,10 +100,13 @@ export class App {
 
   /** Default human control schemes. */
   schemes(n: 1 | 2): SlotScheme[] {
+    // pad numbers are ordinals among *connected* pads and resolved every frame, so a controller that
+    // is plugged in (or woken by its first button press) after the match started still works.
+    if (n === 1) return [{ keyboard: 'p1', pad: 0, touch: true, mouse: true }];
     const pads = [...(navigator.getGamepads?.() ?? [])].filter((g) => g && g.connected).length;
-    if (n === 1) return [{ keyboard: 'p1', pad: pads > 0 ? 0 : null, touch: true, mouse: true }];
-    return pads >= 2 ? [{ keyboard: 'p1', pad: 0, touch: false, mouse: true }, { keyboard: 'p2', pad: 1, touch: false, mouse: false }]
-      : [{ keyboard: 'p1', pad: null, touch: false, mouse: true }, { keyboard: 'p2', pad: pads > 0 ? 0 : null, touch: false, mouse: false }];
+    return pads === 1
+      ? [{ keyboard: 'p1', pad: null, touch: false, mouse: true }, { keyboard: 'p2', pad: 0, touch: false, mouse: false }]
+      : [{ keyboard: 'p1', pad: 0, touch: false, mouse: true }, { keyboard: 'p2', pad: 1, touch: false, mouse: false }];
   }
 }
 
@@ -142,7 +146,7 @@ function mainMenu(app: App): HTMLElement {
       h('div', { class: 'menu-list' },
         item(t('menu.quick'), () => void app.go('quick', { mode: '1p' }), true), item(t('menu.career'), () => void app.go('career')), item(t('menu.tournament'), () => void app.go('tournament')),
         item(t('menu.training'), () => void app.go('training')), item(t('menu.versus'), () => void app.go('quick', { mode: '2p' })), item(t('menu.settings'), () => void app.go('settings')), item(t('menu.credits'), () => void app.go('credits'))),
-      h('div', { class: 'card', style: 'max-width:420px' }, h('h3', null, 'Controls'), h('div', { class: 'muted', style: 'line-height:1.6' }, 'Keyboard: WASD move · J pass · K through · L lob/cross · I shoot · Shift sprint · Ctrl precision · Q switch/chip · E finesse/press · 1–4 skill moves · Esc pause.', h('br'), 'Gamepad and touch controls are detected automatically and prompts follow your device.'))),
+      h('div', { class: 'card', style: 'max-width:420px' }, h('h3', null, 'Controls'), h('div', { class: 'muted', style: 'line-height:1.6' }, 'Keyboard (two hands): left — WASD move · Shift sprint · Space precision/shield · Q switch/chip · E finesse/press. Right — J pass · K through · L lob/cross · I shoot · U O M . skill moves. Esc pause.', h('br'), 'Gamepad and touch controls are detected automatically and prompts follow your device.'))),
     h('div', { class: 'muted', style: 'font-size:12px' }, 'v0.1 · saves stay on this device'));
 }
 

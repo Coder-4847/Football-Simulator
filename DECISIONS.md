@@ -33,3 +33,8 @@ The original brief was cut off mid-way (after the Settings section); sections 7+
 - Offside is judged at the moment of the pass with the receiver's touch; marginal offsides can be missed by the assistant (and caught by VAR if enabled). Only direct play involvement counts (no "interfering with the keeper").
 - VAR (optional): goals can be chalked off for a missed offside/foul in the build-up, penalties can be overturned, red cards downgraded.
 - Wet pitch = faster ball, lower grip (occasional slips); snow = slower ball and bounce.
+
+## Two-handed keyboard layout, pad hot-plug, smoothing (v2 settings)
+- Keyboard defaults moved to a strict two-hand split: left hand WASD + Shift + Space + Q/E, right hand J/K/L/I with U/O/M/. skill slots. Arrow keys and 1–4 remain alternates. Settings `version: 2` resets saved keyboard bindings once so existing players get the new layout.
+- Gamepads are only exposed by browsers after the first button press, so the pad slot is now assigned unconditionally (and re-resolved every frame) instead of at match start; a connect/disconnect toast and a pad test card in Settings → Controls were added.
+- Player marker rings dimmed (thin, ~40% opacity). Motion smoothing: AI intent low-pass, interpolated stride/speed/state time for rendering, smoothed ball lookahead in the camera, paced FPS cap, MSAA by default on Medium+, radar throttled to ~30 Hz.

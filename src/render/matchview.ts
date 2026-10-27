@@ -163,7 +163,7 @@ export class MatchView {
     this.ballShadow.rotation.x = -Math.PI / 2; this.scene.add(this.ballShadow);
 
     // markers
-    this.targetRing = new Mesh(new RingGeometry(0.55, 0.72, 32), new MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85, depthWrite: false }));
+    this.targetRing = new Mesh(new RingGeometry(0.55, 0.72, 32), new MeshBasicMaterial({ color: 0xb8c4d4, transparent: true, opacity: 0.4, depthWrite: false }));
     this.targetRing.rotation.x = -Math.PI / 2; this.targetRing.visible = false; this.scene.add(this.targetRing);
     const lg = new BufferGeometry(); lg.setAttribute('position', new BufferAttribute(new Float32Array(6), 3));
     this.aimLine = new Line(lg, new LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8 }));
@@ -546,12 +546,14 @@ export class MatchView {
     const x = p.px + (p.x - p.px) * alpha, z = p.py + (p.y - p.py) * alpha;
     const face = p.pface + angleDiff(p.pface, p.face) * alpha;
     const sk = p.skill ? skillById(p.skill.id) : p.state === 'skill' ? skillById(p.stateName) : undefined;
-    const speed = Math.hypot(p.vx, p.vy);
+    const speed = Math.hypot(p.pvx + (p.vx - p.pvx) * alpha, p.pvy + (p.vy - p.pvy) * alpha);
+    const stride = p.pstride + (p.stride - p.pstride) * alpha;
+    const stateT = p.stateT >= p.pstateT ? p.pstateT + (p.stateT - p.pstateT) * alpha : p.stateT;
     // dive direction relative to the player's left
     const diveSide = Math.sign(-p.sx * Math.cos(face)) || 1;
     void dt; void v;
     return {
-      visible: !p.sentOff, x, z, face, state: p.state, stateName: p.stateName, stateT: p.stateT, stateDur: p.stateDur, speed, stride: p.stride,
+      visible: !p.sentOff, x, z, face, state: p.state, stateName: p.stateName, stateT, stateDur: p.stateDur, speed, stride,
       hasBall: m.owner === p, ballSide: p.ballSide, dominantFoot: p.data.foot, weakFoot: p.data.weakFoot, tired: m.cfg.fatigue ? 1 - p.stamina : 0, keeper: p.isGK(),
       skillAnim: sk?.anim ?? null, skillU: p.skill ? p.skill.t / p.skill.dur : 0, skillSide: p.skill?.dx ?? 1, diveSide, diveH: p.sz, celebT: this.time, kickPower: 0.6,
     };
@@ -681,10 +683,11 @@ export class MatchView {
       const p = h.player;
       let mk = this.markers.get(i);
       if (!mk) {
-        const col = i === 0 ? 0x3b82f6 : i === 1 ? 0xef4444 : i === 2 ? 0x22c55e : 0xf59e0b;
-        const ring = new Mesh(new RingGeometry(0.62, 0.8, 32), new MeshBasicMaterial({ color: col, transparent: true, opacity: 0.95, depthWrite: false }));
+        // deliberately dim: toneMapped, low opacity, so it reads as a soft ground marker and never triggers bloom
+        const col = i === 0 ? 0x2f5f9e : i === 1 ? 0x9e3a3a : i === 2 ? 0x2f8a52 : 0x9a7a2a;
+        const ring = new Mesh(new RingGeometry(0.62, 0.72, 40), new MeshBasicMaterial({ color: col, transparent: true, opacity: 0.4, depthWrite: false }));
         ring.rotation.x = -Math.PI / 2;
-        const arrow = new Mesh(new ConeGeometry(0.22, 0.4, 16), new MeshBasicMaterial({ color: col }));
+        const arrow = new Mesh(new ConeGeometry(0.16, 0.3, 16), new MeshBasicMaterial({ color: col, transparent: true, opacity: 0.55 }));
         arrow.rotation.x = Math.PI;
         this.scene.add(ring, arrow); mk = { ring, arrow }; this.markers.set(i, mk);
       }
@@ -693,7 +696,7 @@ export class MatchView {
       const x = p.px + (p.x - p.px) * alpha, z = p.py + (p.y - p.py) * alpha;
       mk.ring.visible = true; mk.arrow.visible = true;
       mk.ring.position.set(x, 0.04, z);
-      mk.arrow.position.set(x, 2.5 + Math.sin(this.time * 6) * 0.08, z);
+      mk.arrow.position.set(x, 2.45 + Math.sin(this.time * 4) * 0.05, z);
     });
     for (const [i, mk] of this.markers) if (!used.has(i)) { mk.ring.visible = false; mk.arrow.visible = false; }
 

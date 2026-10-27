@@ -35,17 +35,17 @@ export const PRESETS: Record<Exclude<QualityName, 'Custom'>, Quality> = {
     anisotropy: 1, maxPixelRatio: 1, pitchTexture: 1024, netPhysics: false, ballTrail: false,
   },
   Medium: {
-    name: 'Medium', resolutionScale: 0.9, shadows: 'low', shadowMapSize: 1024, antialias: 'fxaa', bloom: false, ssao: false, depthOfField: false,
+    name: 'Medium', resolutionScale: 1, shadows: 'low', shadowMapSize: 1024, antialias: 'msaa', bloom: false, ssao: false, depthOfField: false,
     motionBlur: false, filmGrain: false, vignette: true, crowd: 0.5, grassBlades: 0, weatherParticles: 2000, animLod: 1, volumetric: false,
     anisotropy: 4, maxPixelRatio: 1.5, pitchTexture: 2048, netPhysics: true, ballTrail: false,
   },
   High: {
-    name: 'High', resolutionScale: 1, shadows: 'medium', shadowMapSize: 2048, antialias: 'smaa', bloom: true, ssao: false, depthOfField: true,
+    name: 'High', resolutionScale: 1, shadows: 'medium', shadowMapSize: 2048, antialias: 'msaa', bloom: true, ssao: false, depthOfField: true,
     motionBlur: false, filmGrain: false, vignette: true, crowd: 0.8, grassBlades: 14000, weatherParticles: 5000, animLod: 0, volumetric: false,
     anisotropy: 8, maxPixelRatio: 2, pitchTexture: 2048, netPhysics: true, ballTrail: true,
   },
   Ultra: {
-    name: 'Ultra', resolutionScale: 1.15, shadows: 'high', shadowMapSize: 4096, antialias: 'smaa', bloom: true, ssao: true, depthOfField: true,
+    name: 'Ultra', resolutionScale: 1.15, shadows: 'high', shadowMapSize: 4096, antialias: 'msaa', bloom: true, ssao: true, depthOfField: true,
     motionBlur: true, filmGrain: true, vignette: true, crowd: 1, grassBlades: 40000, weatherParticles: 9000, animLod: 0, volumetric: true,
     anisotropy: 16, maxPixelRatio: 2, pitchTexture: 4096, netPhysics: true, ballTrail: true,
   },

@@ -53,21 +53,21 @@ export interface Rig {
 type Part = { geo: BufferGeometry; bone: BoneName; color: Color };
 
 function seg(radiusTop: number, radiusBottom: number, length: number, color: string, bone: BoneName, opts: { y?: number; x?: number; z?: number; sx?: number; sz?: number; radial?: number } = {}): Part {
-  const g = new CylinderGeometry(radiusTop, radiusBottom, length, opts.radial ?? 10, 1, false);
+  const g = new CylinderGeometry(radiusTop, radiusBottom, length, opts.radial ?? 16, 1, false);
   g.translate(opts.x ?? 0, (opts.y ?? 0) - length / 2, opts.z ?? 0);
   if (opts.sx || opts.sz) g.scale(opts.sx ?? 1, 1, opts.sz ?? 1);
   return { geo: g, bone, color: new Color(color) };
 }
 
 function capsule(r: number, len: number, color: string, bone: BoneName, o: { x?: number; y?: number; z?: number; sx?: number; sy?: number; sz?: number } = {}): Part {
-  const g = new CapsuleGeometry(r, len, 4, 10);
+  const g = new CapsuleGeometry(r, len, 6, 16);
   if (o.sx || o.sy || o.sz) g.scale(o.sx ?? 1, o.sy ?? 1, o.sz ?? 1);
   g.translate(o.x ?? 0, o.y ?? 0, o.z ?? 0);
   return { geo: g, bone, color: new Color(color) };
 }
 
 function sphere(r: number, color: string, bone: BoneName, o: { x?: number; y?: number; z?: number; sx?: number; sy?: number; sz?: number } = {}): Part {
-  const g = new SphereGeometry(r, 12, 10);
+  const g = new SphereGeometry(r, 20, 14);
   if (o.sx || o.sy || o.sz) g.scale(o.sx ?? 1, o.sy ?? 1, o.sz ?? 1);
   g.translate(o.x ?? 0, o.y ?? 0, o.z ?? 0);
   return { geo: g, bone, color: new Color(color) };
@@ -203,7 +203,7 @@ export function buildHumanoid(opts: RigOptions): Rig {
 
   // ---- shirt (textured) parts: torso + short sleeve
   const shirtParts: Part[] = [];
-  const torso = new CapsuleGeometry(0.14 * w, D.chest + D.spine + 0.04, 6, 14);
+  const torso = new CapsuleGeometry(0.14 * w, D.chest + D.spine + 0.04, 8, 24);
   torso.scale(1.0, 1, 0.72);
   torso.translate(0, D.spine * 0.5 + D.chest * 0.5 - 0.02, 0);
   shirtParts.push({ geo: torso, bone: 'spine', color: new Color('#ffffff') });
@@ -220,7 +220,7 @@ export function buildHumanoid(opts: RigOptions): Rig {
   };
   addShirt(torso, 'spine');
   if (!sleeve) for (const s of ['L', 'R'] as const) {
-    const g = new CylinderGeometry(0.056 * w, 0.05 * w, D.upperArm * 0.55, 10, 1, false);
+    const g = new CylinderGeometry(0.056 * w, 0.05 * w, D.upperArm * 0.55, 16, 1, false);
     g.translate(0, -D.upperArm * 0.27, 0);
     addShirt(g, `ua${s}` as BoneName);
   }

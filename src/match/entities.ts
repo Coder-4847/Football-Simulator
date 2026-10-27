@@ -43,6 +43,10 @@ export const newPlayerStats = (): PlayerStats => ({
 export class MPlayer {
   x = 0; y = 0; vx = 0; vy = 0;
   px = 0; py = 0; pface = 0;
+  /** previous-tick velocity / stride / state time for render interpolation */
+  pvx = 0; pvy = 0; pstride = 0; pstateT = 0;
+  /** low-pass filtered AI intent (keeps AI movement from twitching) */
+  smx = 0; smy = 0;
   face = 0;
   stamina = 1;
   state: PState = 'normal';
