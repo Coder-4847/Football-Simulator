@@ -2,6 +2,7 @@ import { h, clear, toast, kitChip } from './dom';
 import { MenuNav } from './menunav';
 import { InputManager, type SlotScheme } from '../input/manager';
 import { settings } from '../core/settings';
+import { t } from '../core/i18n';
 import { generateWorld } from '../data/generate';
 import type { World } from '../data/types';
 import { Match } from '../match/match';
@@ -139,8 +140,8 @@ function mainMenu(app: App): HTMLElement {
     h('div', { class: 'brand' }, h('div', { class: 'mark' }, 'F'), h('div', { class: 'col', style: 'gap:2px' }, h('div', { class: 'hero-title' }, 'Football Simulator'), h('div', { class: 'muted' }, 'Original clubs · original players · original everything'))),
     h('div', { class: 'grow row wrap', style: 'align-items:flex-start;gap:48px' },
       h('div', { class: 'menu-list' },
-        item('Quick match', () => void app.go('quick', { mode: '1p' }), true), item('Career', () => void app.go('career')), item('Tournament', () => void app.go('tournament')),
-        item('Skill games & training', () => void app.go('training')), item('Local versus', () => void app.go('quick', { mode: '2p' })), item('Settings', () => void app.go('settings')), item('Credits', () => void app.go('credits'))),
+        item(t('menu.quick'), () => void app.go('quick', { mode: '1p' }), true), item(t('menu.career'), () => void app.go('career')), item(t('menu.tournament'), () => void app.go('tournament')),
+        item(t('menu.training'), () => void app.go('training')), item(t('menu.versus'), () => void app.go('quick', { mode: '2p' })), item(t('menu.settings'), () => void app.go('settings')), item(t('menu.credits'), () => void app.go('credits'))),
       h('div', { class: 'card', style: 'max-width:420px' }, h('h3', null, 'Controls'), h('div', { class: 'muted', style: 'line-height:1.6' }, 'Keyboard: WASD move · J pass · K through · L lob/cross · I shoot · Shift sprint · Ctrl precision · Q switch/chip · E finesse/press · 1–4 skill moves · Esc pause.', h('br'), 'Gamepad and touch controls are detected automatically and prompts follow your device.'))),
     h('div', { class: 'muted', style: 'font-size:12px' }, 'v0.1 · saves stay on this device'));
 }
