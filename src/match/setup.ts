@@ -54,3 +54,15 @@ export function worldSetup(world: World, homeId: string, awayId: string): [TeamS
   const clash = Math.abs(parseInt(home.kits.home.primary.slice(1), 16) - parseInt(away.kits.home.primary.slice(1), 16)) < 0x300000;
   return [teamSetupFromClub(world, homeId), teamSetupFromClub(world, awayId, { away: clash })];
 }
+
+export interface TeamRatings { ovr: number; att: number; mid: number; def: number; gk: number }
+
+/** Quick strength summary of a club's best XI. */
+export function teamRatings(world: { clubs: Record<string, Club>; players: Record<string, Player> }, clubId: string): TeamRatings {
+  const club = world.clubs[clubId]!;
+  const { starters } = pickLineup(club.squad.map((id) => world.players[id]!).filter(Boolean), formationById(club.formation));
+  const avg = (xs: Player[]): number => (xs.length ? Math.round(xs.reduce((s, p) => s + p.overall, 0) / xs.length) : 0);
+  const gk = starters.filter((p) => p.positions[0] === 'GK'), def = starters.filter((p) => ['CB', 'LB', 'RB', 'LWB', 'RWB'].includes(p.positions[0]!));
+  const mid = starters.filter((p) => ['CDM', 'CM', 'CAM', 'LM', 'RM'].includes(p.positions[0]!)), att = starters.filter((p) => ['LW', 'RW', 'CF', 'ST'].includes(p.positions[0]!));
+  return { ovr: avg(starters), att: avg(att), mid: avg(mid), def: avg(def), gk: avg(gk) };
+}

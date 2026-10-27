@@ -3,6 +3,7 @@ import { RNG } from '../core/rng';
 import { angleDiff, clamp, clamp01, dampAngle, lerp } from '../core/math';
 import type { Player } from '../data/types';
 import { formationById } from '../data/formations';
+import { ratingAt } from '../data/rating';
 import { Ball, goalScored, predictCrossing, SURFACES } from './ball';
 import {
   BALL_R, GOAL_H, HALF_GOAL, HALF_L, HALF_W, PITCH_L, PITCH_W, PLAYER_R, other, type Side,
@@ -929,6 +930,42 @@ export class Match {
   }
   removedPlayers: MPlayer[] = [];
   closeSubWindow(side: Side): void { this.windowOpen[side] = false; }
+
+  /** Substitutions requested by a human during play; executed at the next stoppage. */
+  subQueue: Array<{ side: Side; off: MPlayer; on: Player }> = [];
+  queueSub(side: Side, off: MPlayer, on: Player): void {
+    this.subQueue = this.subQueue.filter((q) => q.off !== off && q.on !== on);
+    this.subQueue.push({ side, off, on });
+  }
+  applyQueuedSubs(): void {
+    const q = this.subQueue; this.subQueue = [];
+    for (const s of q) if (s.off.active()) this.substitute(s.side, s.off, s.on);
+  }
+
+  /** Changes the formation live: players keep their roles as far as possible. */
+  setFormation(side: Side, id: string): void {
+    const t = this.teams[side];
+    const f = formationById(id);
+    t.formation = f;
+    const players = t.players.filter((p) => p.active());
+    const gk = players.find((p) => p.isGK());
+    const field = players.filter((p) => p !== gk);
+    const slots = f.slots.map((s, i) => ({ s, i })).filter((x) => x.s.pos !== 'GK');
+    const used = new Set<MPlayer>();
+    for (const { s, i } of slots) {
+      let best: MPlayer | null = null; let br = -1;
+      for (const p of field) {
+        if (used.has(p)) continue;
+        const r = ratingAt(p.data, s.pos);
+        if (r > br) { br = r; best = p; }
+      }
+      if (best) { used.add(best); best.slot = i; best.slotPos = s.pos; best.role = s.role; }
+    }
+    if (gk) { const gi = f.slots.findIndex((x) => x.pos === 'GK'); gk.slot = gi; }
+    // keep the players array indexed by slot for replay/rendering
+    t.players.sort((a, b) => a.slot - b.slot);
+    this.refreshAll();
+  }
 
   // ---------- fouls (entry point used by deflections) ----------
 

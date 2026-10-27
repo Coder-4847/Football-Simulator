@@ -69,6 +69,7 @@ export function startSetPiece(m: Match, init: SetPieceInit): void {
     if (m.maybeEndPeriod()) return;
   }
   const b = m.ball;
+  m.applyQueuedSubs();
   m.owner = null; m.ballInGoalKeeperHands = null; m.passInfo = null; m.shotInfo = null; m.adv = null;
   let { x, y } = init;
   // clamp ball position to legal spots
