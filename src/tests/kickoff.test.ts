@@ -24,4 +24,14 @@ describe('kick-off', () => {
       expect(firstOwner).toBe(side);
     }
   }, 60000);
+
+  it('can skip the set-up of a dead ball', () => {
+    const m = makeMatch('skip', { halfLength: 3 });
+    m.startMatch();
+    m.step(1 / 60);
+    expect(m.canSkip()).toBe(true);
+    expect(m.skipWaiting()).toBe(true);
+    for (let i = 0; i < 20; i++) m.step(1 / 60);
+    expect(m.sp === null || m.sp.phase !== 'setup').toBe(true);
+  });
 });

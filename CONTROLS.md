@@ -38,3 +38,5 @@ Aim with the stick (or the mouse), hold shoot/cross for power, rotate the right 
 LB/RB (Q/E) dive left/right, Y/K rush out, A/J throw, X/L kick. Keeper assist (Settings) adds automatic dives.
 
 Low cross is Q+L (not Shift+L) because Shift is sprint; see DECISIONS.md.
+
+**Skip:** during goal celebrations/replays, injury stoppages, and while a corner/free kick/throw-in/kick-off is being set up, press ✕ (gamepad), L1 + R1 together (Q + E on keyboard), Enter, or tap the on-screen Skip chip to jump straight to the restart.

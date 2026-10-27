@@ -105,3 +105,5 @@ td { padding: 8px 10px; border-bottom: 1px solid var(--line); } tr.sel td { back
 @media (orientation: portrait) and (pointer: coarse) { .touch-root .orient-msg { display: grid; } }
 canvas { display: block; touch-action: none; outline: none; }
 .ui-layer > * { flex-shrink: 0; }
+
+.skip-chip { position: absolute; left: 50%; bottom: calc(var(--safe-b, 0px) + 84px); transform: translateX(-50%); z-index: 30; background: rgba(15,20,28,.78); backdrop-filter: blur(6px); font-size: 14px; letter-spacing: .06em; padding: 8px 16px; min-height: 36px; }

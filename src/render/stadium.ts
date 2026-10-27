@@ -300,7 +300,7 @@ export function buildStadium(styleIndex: number, opts: { crowd: number; home: { 
     ? [[-HALF_L * 0.55, -HALF_W - 22], [HALF_L * 0.55, -HALF_W - 22], [-HALF_L * 0.55, HALF_W + 22], [HALF_L * 0.55, HALF_W + 22]]
     : [[-HALF_L - 18, -HALF_W - 14], [HALF_L + 18, -HALF_W - 14], [-HALF_L - 18, HALF_W + 14], [HALF_L + 18, HALF_W + 14]];
   const mastH = style.mast === 'roof' ? Math.max(30, maxHeight + 9) : 44;
-  const lampMat = new MeshBasicMaterial({ color: opts.night ? '#fff7e0' : '#dddddd' });
+  const lampMat = new MeshBasicMaterial({ color: opts.night ? '#d9d2bd' : '#bbbbbb' });
   for (const [mx, mz] of mastPositions) {
     if (style.mast === 'none') break;
     const pole = new Mesh(new CylinderGeometry(0.4, 0.7, mastH, 8), new MeshStandardMaterial({ color: '#6b7280', roughness: 0.6, metalness: 0.4 }));

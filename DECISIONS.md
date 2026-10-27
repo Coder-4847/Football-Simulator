@@ -46,3 +46,8 @@ The original brief was cut off mid-way (after the Settings section); sections 7+
 - Manual switch scores candidates by distance to the carrier / predicted ball, goal-side bonus and closing speed; the stick direction is a filter (from the current player), not the main criterion.
 - Camera: default broadcast/mobile/tele cameras ~22 % closer.
 - Kick-off: pre-kick everyone is clamped to their own half (defenders outside the circle); the kick-off pass is exact; for 3.2 s afterwards the receiving side's AI cannot advance across halfway, so the first touch always lands with the kicking team.
+
+## Look + skip pass
+- Root cause of the "too bright" look: PostStack reset `toneMappingExposure` to 1.0 whenever quality was applied, discarding the per-time-of-day exposure. Exposure is now stored in MatchView and re-applied after the post stack (day 0.66, dusk 0.8, night 1.0). Bloom threshold raised to 1.9 (HDR) with strength 0.16 so sunlit lines no longer glow; floodlight heads/lamps and intensity trimmed.
+- Corner and goal-kick cameras previously sat inside the crowd; corners now use a raised far-side view inside the pitch, goal kicks a low view from just behind the goal line.
+- Skip: `Match.canSkip()/skipWaiting()` fast-forward goal celebrations, injury stops and set-piece set-up (players snap to spots); the session wires gamepad ✕, L1+R1 (modA+modB), Enter and a HUD chip, and swallows the pressing button so it doesn't also pass.

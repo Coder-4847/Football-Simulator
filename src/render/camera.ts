@@ -157,7 +157,8 @@ export class CameraDirector {
     switch (sp.type) {
       case 'corner': {
         const cs = Math.sign(sp.y) || 1;
-        dp.set(sp.x - att * 14, 5.5 * this.heightScale, sp.y + cs * 14); dl.set(goalX - att * 8, 1.5, 0); return true;
+        // stay inside the pitch on the far side and look across at the corner and the box (never behind the boards / in the crowd)
+        dp.set(goalX - att * 24 * this.zoomScale, 13 * this.heightScale, -cs * 24 * this.zoomScale); dl.set(goalX - att * 5, 0.8, cs * 11); return true;
       }
       case 'freeKick': case 'indirectFreeKick': {
         const dist = Math.hypot(goalX - sp.x, sp.y);
@@ -172,7 +173,7 @@ export class CameraDirector {
       }
       case 'goalKick': {
         const own = -att * HALF_L;
-        dp.set(own - att * 30, 12 * this.heightScale, 14); dl.set(own + att * 14, 0, 0); return true;
+        dp.set(own - att * 4.5, 6.5 * this.heightScale, 3); dl.set(own + att * 32, 1, 0); return true;
       }
       default: void controlled; return false;
     }

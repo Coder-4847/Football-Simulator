@@ -111,6 +111,33 @@ export class Match {
 
   windowsUsedFor(side: Side): number { return this.windowsUsed[side]; }
   notifyPenaltyTaken(_taker: MPlayer, _spec: unknown): void { /* hook for UI */ }
+  /** True while the game is only waiting (goal celebration, set-up of a dead ball, injury stoppage) and the player may skip ahead. */
+  canSkip(): boolean {
+    if (this.phase === 'goal') return this.phaseT > 0.8 && !this.varStarted;
+    if (this.phase === 'injury') return this.phaseT > 0.5;
+    if (this.phase === 'setpiece' && this.sp) {
+      if (this.sp.phase === 'setup') return true;
+      return this.sp.phase === 'ready' && !!this.sp.taker && this.sp.taker.human < 0 && this.sp.t - this.sp.readyAt < 0.9;
+    }
+    return false;
+  }
+
+  /** Skip the waiting: players snap to their set-piece spots and the restart happens straight away. */
+  skipWaiting(): boolean {
+    if (!this.canSkip()) return false;
+    if (this.phase === 'goal') { this.phaseT = Math.max(this.phaseT, 5.6); return true; }
+    if (this.phase === 'injury') { this.phaseT = Math.max(this.phaseT, 3.6); return true; }
+    const sp = this.sp!;
+    if (sp.phase === 'setup') {
+      for (const p of this.all) {
+        if (!p.active() || p.state === 'down') continue;
+        p.x = p.px = p.tx; p.y = p.py = p.ty; p.vx = p.vy = 0;
+      }
+      sp.t = Math.max(sp.t, sp.maxSetup, 1.3);
+    } else sp.readyAt -= 1;
+    return true;
+  }
+
   forceResume(): void { if (this.sp) { this.sp.phase = 'done'; this.sp = null; } this.phase = 'play'; }
   requestRun(side: Side): void { this.runRequest = { side, until: this.time + 2 }; }
   requestPress(side: Side, from: MPlayer): void { this.pressCall[side] = this.time + 3.5; void from; }

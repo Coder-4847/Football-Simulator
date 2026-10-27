@@ -197,6 +197,7 @@ export class MatchView {
     this.buildOfficials();
   }
 
+  private exposure = 0.7;
   private applyEnvironment(): void {
     const tod = this.tod, kind = this.weatherKind;
     const night = tod === 'night';
@@ -211,7 +212,8 @@ export class MatchView {
     this.hemi.intensity = night ? 0.25 : tod === 'dusk' ? 0.35 : kind === 'clear' ? 0.42 : 0.6;
     this.hemi.color.set(night ? '#2a3a66' : tod === 'dusk' ? '#ff9a6e' : '#bfd8ff');
     this.hemi.groundColor.set(night ? '#0b1410' : '#3c5a2a');
-    this.renderer.toneMappingExposure = night ? 0.9 : tod === 'dusk' ? 0.8 : 0.55;
+    this.exposure = night ? 1.0 : tod === 'dusk' ? 0.8 : 0.66;
+    this.renderer.toneMappingExposure = this.exposure;
     // sky
     if (this.sky) { this.scene.remove(this.sky); this.sky.geometry.dispose(); this.sky = null; }
     if (!night) {
@@ -237,9 +239,9 @@ export class MatchView {
       this.addStars();
     }
     // floodlights
-    const flood = night ? 4800 : tod === 'dusk' ? 2200 : 0;
+    const flood = night ? 4200 : tod === 'dusk' ? 1800 : 0;
     for (const l of this.stadium.lights) { l.intensity = flood; l.angle = 0.78; l.penumbra = 0.6; l.decay = 2; }
-    for (const m of this.stadium.floodMeshes) (m.material as MeshBasicMaterial).color.set(flood > 0 ? '#fff7e0' : '#9aa0a8');
+    for (const m of this.stadium.floodMeshes) (m.material as MeshBasicMaterial).color.set(flood > 0 ? '#d9d2bd' : '#8a9098');
     this.weather.set(kind, this.quality.weatherParticles, night);
     if (kind === 'rain') { (this.ground.material as MeshStandardMaterial).roughness = 0.6; }
   }
@@ -329,6 +331,7 @@ export class MatchView {
     this.sun.shadow.bias = -0.0004; this.sun.shadow.normalBias = 0.04;
     for (const pv of this.views.values()) { pv.rig.body.castShadow = q.shadows !== 'off'; pv.rig.shirtMesh.castShadow = q.shadows !== 'off'; }
     this.post.apply(q, this.opts.grade);
+    this.renderer.toneMappingExposure = this.exposure;
     this.resize();
     this.director.camera.far = 4000;
     this.weather.set(this.weatherKind, q.weatherParticles, this.tod === 'night');

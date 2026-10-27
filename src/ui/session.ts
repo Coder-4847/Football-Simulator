@@ -67,6 +67,9 @@ export class GameSession {
   private highlightClips = false;
   private sessionTime = 0;
   private controlled = null as import('../match/entities').MPlayer | null;
+  private skipEl = h('button', { class: 'btn skip-chip', style: 'display:none', onclick: (): void => this.doSkip() }, 'Skip');
+  private skipHeld = false;
+  private swallowT = 0;
 
   constructor(private parent: HTMLElement, private o: SessionOptions) {
     const m = o.match;
@@ -82,6 +85,8 @@ export class GameSession {
     });
     this.hud = new Hud(m, this.view, () => o.input.active);
     this.root.appendChild(this.hud.root);
+    this.root.appendChild(this.skipEl);
+    window.addEventListener('keydown', this.onSkipKey);
     if (o.hideScoreboard) (this.hud.root.querySelector('.scoreboard') as HTMLElement).style.display = 'none';
     // humans
     o.input.setSlots(o.humans.map((hs) => hs.scheme));
@@ -146,6 +151,7 @@ export class GameSession {
     const input = this.o.input;
     if (this.intro) return;
     const frames = this.o.humans.map((_, i) => input.frame(i, dt));
+    this.handleSkip(frames[0]);
     if (frames[0]?.pressed.pause && !this.overlayBlocksPause()) { if (this.paused) this.resume(); else this.pause(); }
     if (this.paused || this.view.replay) return;
     // goal replay trigger
@@ -167,6 +173,43 @@ export class GameSession {
     if (hs) input.touch?.setContext(humanContext(m, hs), m.sp && m.sp.phase !== 'done' ? (m.sp.type === 'indirectFreeKick' ? 'freeKick' : m.sp.type) : '');
     input.yaw = this.view.director.inputYaw;
     this.phaseWatch();
+  }
+
+  private onSkipKey = (e: KeyboardEvent): void => { if (e.code === 'Enter' && !e.repeat) this.doSkip(); };
+
+  /** Skip combo: gamepad X / cross, or both shoulder buttons together (L1 + R1 / Q + E by default). */
+  private handleSkip(f: import('../input/actions').FrameInput | undefined): void {
+    let x = false;
+    for (const g of navigator.getGamepads?.() ?? []) if (g && g.connected && g.buttons[0]?.pressed) x = true;
+    const combo = !!f && ((f.pressed.modA && f.down.modB) || (f.pressed.modB && f.down.modA));
+    const hit = (x && !this.skipHeld) || combo;
+    this.skipHeld = x;
+    if (this.swallowT > 0) {
+      this.swallowT -= 1 / 60;
+      if (f) for (const b of ['b1', 'b2', 'b3', 'b4', 'modA', 'modB'] as const) { f.pressed[b] = false; f.released[b] = false; f.down[b] = false; }
+    }
+    const can = this.canSkipNow();
+    this.skipEl.style.display = can ? '' : 'none';
+    if (can) this.skipEl.textContent = `Skip  ${this.lastDevice === 'gamepad' ? '✕ / L1+R1' : this.lastDevice === 'touch' ? '⏭' : 'Enter / Q+E'}`;
+    if (hit && can) this.doSkip();
+    // keep swallowing while X is still held so the release doesn't fire a pass
+    if (this.swallowT <= 0 && x && this.swallowPad && f) { f.pressed.b1 = false; f.released.b1 = false; f.down.b1 = false; }
+    if (!x) this.swallowPad = false;
+  }
+  private swallowPad = false;
+
+  private canSkipNow(): boolean {
+    if (this.intro || this.paused || this.overlay) return false;
+    return !!this.view.replay || this.o.match.canSkip();
+  }
+
+  private doSkip(): void {
+    if (!this.canSkipNow()) return;
+    if (this.view.replay) { this.replayAt = -1; this.view.stopReplay(); this.hud.setReplay(false); }
+    this.o.match.skipWaiting();
+    this.replayAt = -1;
+    this.swallowT = 0.35; this.swallowPad = true;
+    audio.ui('click');
   }
 
   private overlayBlocksPause(): boolean { return this.overlay !== null && !this.paused; }
@@ -284,6 +327,7 @@ export class GameSession {
   dispose(): void {
     this.loop.stop();
     window.removeEventListener('resize', this.resizeFn);
+    window.removeEventListener('keydown', this.onSkipKey);
     document.removeEventListener('visibilitychange', this.onVis);
     audio.stopCrowd();
     this.o.input.touch?.setVisible(false);
