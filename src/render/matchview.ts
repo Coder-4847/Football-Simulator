@@ -1,7 +1,7 @@
 import {
   ACESFilmicToneMapping, AmbientLight, BufferAttribute, BufferGeometry, CanvasTexture, CircleGeometry, Color, ConeGeometry, DirectionalLight, Group, HemisphereLight, Line, LineBasicMaterial,
   Mesh, MeshBasicMaterial, MeshStandardMaterial, PCFSoftShadowMap, PMREMGenerator, PerspectiveCamera, Quaternion, RingGeometry, Scene, SphereGeometry, SRGBColorSpace,
-  Vector3, WebGLRenderer, PCFShadowMap, BasicShadowMap, type Texture,
+  Vector3, WebGLRenderer, PCFShadowMap, BasicShadowMap, BoxGeometry, PlaneGeometry, type Texture,
 } from 'three';
 import { Sky } from 'three/examples/jsm/objects/Sky.js';
 import { angleDiff } from '../core/math';
@@ -12,7 +12,9 @@ import { buildStadium, type StadiumView } from './stadium';
 import { CameraDirector, type CameraMode } from './camera';
 import { PostStack, type GradePreset } from './post';
 import { WeatherFx } from './weather';
+import { GrassBlades } from './grass';
 import { shirtTexture } from './kits';
+import { settings } from '../core/settings';
 import { qualityFor, type Quality } from './quality';
 import type { Match } from '../match/match';
 import type { MPlayer, Team } from '../match/entities';
@@ -50,7 +52,7 @@ class PlayerView {
   frame = 0;
   stride = 0;
   constructor(public rig: Rig, public readonly player: MPlayer | null, public role: 'player' | 'referee' | 'assistant' | 'bench' | 'crew' = 'player') {
-    this.celeb = player ? Math.abs(hash(player.data.id)) % 6 : 0;
+    this.celeb = player ? (settings.value.gameplay.celebrations[player.data.id] ?? Math.abs(hash(player.data.id)) % 6) : 0;
   }
 }
 
@@ -123,6 +125,8 @@ export class MatchView {
   private tod: TimeOfDay;
   private homeKit: { primary: string; secondary: string };
   private awayKit: { primary: string; secondary: string };
+  private grass: GrassBlades | null = null;
+  private offsideLine: Mesh | null = null;
   private boardsT = 0;
   private jumboT = 0;
   private frameCount = 0;
@@ -286,6 +290,12 @@ export class MatchView {
         });
       };
       addSeated(this.match.teams[0], -9); addSeated(this.match.teams[1], 3);
+      for (const cx of [-5.5, 6.5]) {
+        const glass = new Mesh(new BoxGeometry(8.4, 2.1, 0.12), new MeshStandardMaterial({ color: '#9fb4c8', transparent: true, opacity: 0.22, roughness: 0.1 }));
+        glass.position.set(cx, 1.15, 38.3); const roof = new Mesh(new BoxGeometry(8.6, 0.12, 2.2), new MeshStandardMaterial({ color: '#cbd5e1', transparent: true, opacity: 0.55 }));
+        roof.position.set(cx, 2.25, 37.3); const bench = new Mesh(new BoxGeometry(8, 0.1, 0.5), new MeshStandardMaterial({ color: '#374151' })); bench.position.set(cx, 0.45, 37.5);
+        this.scene.add(glass, roof, bench);
+      }
       for (let i = 0; i < 6; i++) {
         const side = i < 3 ? 1 : -1;
         const rig = mk(i % 2 ? '#f97316' : '#22c55e', '#111827', 165, 0); rig.numberPlane.visible = false;
@@ -323,6 +333,8 @@ export class MatchView {
     this.director.camera.far = 4000;
     this.weather.set(this.weatherKind, q.weatherParticles, this.tod === 'night');
     this.ground.visible = true;
+    this.grass?.dispose(); if (this.grass) this.scene.remove(this.grass.mesh); this.grass = null;
+    if (q.grassBlades > 0) { this.grass = new GrassBlades(q.grassBlades, this.weatherKind === 'snow' ? '#dfe8ee' : '#3f8a38'); this.scene.add(this.grass.mesh); }
     const tex = this.pitch.texture; tex.anisotropy = q.anisotropy; tex.needsUpdate = true;
     this.ballShadow.visible = q.shadows === 'off';
     for (const pv of this.views.values()) if (pv.shadow) pv.shadow.visible = q.shadows === 'off';
@@ -443,6 +455,8 @@ export class MatchView {
     this.sun.position.set(fx + this.sunDir.x * 140, this.sunDir.y * 140, fz + this.sunDir.z * 140);
     this.sun.target.position.set(fx, 0, fz); this.sun.target.updateMatrixWorld();
 
+    this.grass?.update(this.director.camera.position.x * 0.2 + bx * 0.8, this.director.camera.position.z * 0.2 + by * 0.8, dt);
+    this.updateOffsideLine(rf);
     // ---- environment animation
     for (const g of this.goals) g.update(dt);
     this.excitement = Math.max(0, this.excitement - dt * 0.18);
@@ -501,6 +515,23 @@ export class MatchView {
     const a = this.trail.geometry.getAttribute('position') as BufferAttribute;
     for (let i = 0; i < 16; i++) { const p = this.trailPts[Math.max(0, this.trailPts.length - 1 - i)] ?? this.trailPts[0]!; a.setXYZ(15 - i, p.x, p.y, p.z); }
     a.needsUpdate = true;
+  }
+
+  private updateOffsideLine(rf: Float32Array | null): void {
+    if (!rf) { if (this.offsideLine) this.offsideLine.visible = false; return; }
+    if (!this.offsideLine) {
+      this.offsideLine = new Mesh(new PlaneGeometry(0.18, 68), new MeshBasicMaterial({ color: 0xffd23f, transparent: true, opacity: 0.55, depthWrite: false }));
+      this.offsideLine.rotation.x = -Math.PI / 2; this.offsideLine.position.y = 0.05; this.scene.add(this.offsideLine);
+    }
+    const bx = rf[0]!;
+    if (Math.abs(bx) < 18) { this.offsideLine.visible = false; return; }
+    const sgn = Math.sign(bx);
+    // the defending team is the one whose keeper (slot 0) stands in that half
+    let best: number[] | null = null;
+    for (const t of [0, 1]) { const gx = rf[12 + (t * 11) * PF]!; if (Math.sign(gx) === sgn && Math.abs(gx) > 25) { best = []; for (let i = 0; i < 11; i++) { const o = 12 + (t * 11 + i) * PF; if (rf[o + 3] !== 99) best.push(rf[o]! * sgn); } } }
+    if (!best || best.length < 2) { this.offsideLine.visible = false; return; }
+    best.sort((a, b) => b - a);
+    this.offsideLine.visible = true; this.offsideLine.position.x = best[1]! * sgn;
   }
 
   private sampleReplay(): Float32Array | null {

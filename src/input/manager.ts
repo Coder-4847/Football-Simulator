@@ -3,6 +3,7 @@ import { FlickDetector, GestureRecognizer, dirOf, type Dir4 } from './gestures';
 import { settings, type KeyBindings } from '../core/settings';
 import { TouchControls } from './touch';
 import type { Device } from './prompts';
+import { isMobile } from '../render/quality';
 
 export interface SlotScheme { keyboard: 'p1' | 'p2' | null; pad: number | null; touch: boolean; mouse: boolean }
 
@@ -37,6 +38,7 @@ export class InputManager {
   private codeMap = new Map<string, Array<{ slot: number; btn: Btn | 'up' | 'down' | 'left' | 'right' | 'rUp' | 'rDown' | 'rLeft' | 'rRight' }>>();
   private target: HTMLElement;
   private enabled = true;
+  private lastTouchAt = -1e9;
   private bound: Array<[EventTarget, string, EventListener]> = [];
   private mousePos = { x: 0, y: 0 };
 
@@ -55,11 +57,13 @@ export class InputManager {
     this.listen(target, 'contextmenu', (e) => e.preventDefault());
     this.listen(window, 'mousemove', (e) => this.onMouseMove(e as MouseEvent));
     this.listen(window, 'gamepadconnected', () => this.setDevice('gamepad'));
+    this.listen(window, 'pointerdown', (e) => { const pt = (e as PointerEvent).pointerType; if (pt === 'touch') { this.lastTouchAt = performance.now(); this.setDevice('touch'); } else if (pt === 'mouse' && withTouch && this.active === 'touch') this.setDevice('keyboard'); }, true);
+    if (isMobile()) this.active = 'touch';
     settings.on(() => this.rebuild());
     this.rebuild();
   }
 
-  private listen(t: EventTarget, ev: string, fn: EventListener): void { t.addEventListener(ev, fn); this.bound.push([t, ev, fn]); }
+  private listen(t: EventTarget, ev: string, fn: EventListener, capture = false): void { t.addEventListener(ev, fn, capture); this.bound.push([t, ev, fn]); }
   dispose(): void { for (const [t, e, f] of this.bound) t.removeEventListener(e, f); this.touch?.root.remove(); }
 
   setEnabled(v: boolean): void { this.enabled = v; if (!v) this.releaseAll(); }
@@ -124,6 +128,7 @@ export class InputManager {
     if (slot < 0) return;
     const s = this.slots[slot]!;
     if (down && (e.target as HTMLElement).closest?.('.ui-layer')) return;
+    if (performance.now() - this.lastTouchAt < 800) return; // compatibility mouse events after a touch
     this.setDevice('keyboard');
     const btn: Btn | null = e.button === 0 ? 'b1' : e.button === 2 ? 'b2' : null;
     if (e.button === 1 && down) { e.preventDefault(); }

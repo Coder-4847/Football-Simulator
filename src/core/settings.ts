@@ -30,7 +30,7 @@ export interface Settings {
   gameplay: {
     difficulty: Difficulty; halfLength: number; gameSpeed: 'slow' | 'normal' | 'fast'; refStrictness: number; offside: boolean; foulFrequency: number; injuries: boolean; fatigue: boolean;
     camera: CameraMode; cameraHeight: number; cameraZoom: number; radar: boolean; playerNames: boolean; staminaBars: boolean; ticker: boolean; dynamicDifficulty: boolean; var: boolean;
-    language: string; extraTimeAndPens: boolean; weather: 'clear' | 'rain' | 'fog' | 'snow' | 'random'; timeOfDay: 'day' | 'dusk' | 'night' | 'random'; stadium: number | 'random';
+    language: string; celebrations: Record<string, number>; extraTimeAndPens: boolean; weather: 'clear' | 'rain' | 'fog' | 'snow' | 'random'; timeOfDay: 'day' | 'dusk' | 'night' | 'random'; stadium: number | 'random';
   };
 }
 
@@ -73,7 +73,7 @@ export function defaultSettings(mobile: boolean): Settings {
     },
     gameplay: {
       difficulty: 'Professional', halfLength: 5, gameSpeed: 'normal', refStrictness: 0.5, offside: true, foulFrequency: 1, injuries: true, fatigue: true, camera: mobile ? 'mobile' : 'broadcast',
-      cameraHeight: 1, cameraZoom: 1, radar: true, playerNames: true, staminaBars: true, ticker: true, dynamicDifficulty: false, var: false, language: 'en', extraTimeAndPens: true,
+      cameraHeight: 1, cameraZoom: 1, radar: true, playerNames: true, staminaBars: true, ticker: true, dynamicDifficulty: false, var: false, language: 'en', celebrations: {}, extraTimeAndPens: true,
       weather: 'clear', timeOfDay: 'day', stadium: 'random',
     },
   };

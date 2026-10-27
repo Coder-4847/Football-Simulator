@@ -95,6 +95,7 @@ export class Match {
   all: MPlayer[] = [];
   dynamicBonus = 0;
   lastTouchByFoot = true;
+  private expiredAt = 0;
   eventLog: Array<{ minute: number; type: 'goal' | 'yellow' | 'red' | 'injury' | 'sub'; side: Side; player: string; assist?: string; text: string }> = [];
   penaltyKick: { taker: MPlayer; t: number; side: Side } | null = null;
   missedOffside: { player: MPlayer; t: number } | null = null;
@@ -367,6 +368,7 @@ export class Match {
         const dot = (p.vx * mx + p.vy * my) / (sp * Math.max(mag, 1e-6));
         turnPenalty = lerp(0.45 + 0.35 * (a.agility / 99), 1, clamp01((dot + 0.3) / 1.3));
       }
+      if (this.cfg.weather !== 'clear' && this.cfg.weather !== 'fog' && p.state === 'normal' && turnPenalty < 0.6 && sp > 6.5 && this.rng.chance(this.cfg.weather === 'snow' ? 0.004 : 0.0025)) { p.setState('stumble', 0.55); p.vx *= 0.5; p.vy *= 0.5; }
       if (p.state !== 'skill') {
         const dvx = wantVx - p.vx, dvy = wantVy - p.vy;
         const dl = Math.hypot(dvx, dvy);
@@ -716,7 +718,8 @@ export class Match {
       this.addedTime = extra * 60;
       this.bus.emit('commentary', { text: `${extra} minute${extra > 1 ? 's' : ''} added`, minute: this.minute() });
     }
-    if (this.addedAnnounced && this.periodClock >= len + this.addedTime) this.periodExpired = true;
+    if (this.addedAnnounced && this.periodClock >= len + this.addedTime) { if (!this.periodExpired) this.expiredAt = this.time; this.periodExpired = true; }
+    if (this.periodExpired && this.phase === 'play' && this.time - this.expiredAt > 20) this.endPeriod();
   }
 
   /** Called when a stoppage happens; ends the period if time is up. Returns true if the period ended. */
@@ -821,10 +824,22 @@ export class Match {
       }
     }
     // VAR review of goals (optional)
-    if (this.cfg.var) this.pendingVarGoal = true;
+    if (this.cfg.var && !ownGoal) this.pendingVarGoal = true;
   }
   lastGoalFromPenalty = false;
   pendingVarGoal = false;
+  private varStarted = false;
+  private varEnd = 0;
+  missedFoul: { t: number; offender: MPlayer; victim: MPlayer } | null = null;
+
+  /** Returns the reason a goal is chalked off after review, or null if it stands. */
+  private varReason(gi: { side: Side; scorer: MPlayer; t: number }): string | null {
+    const mo = this.missedOffside;
+    if (mo && mo.player.side === gi.side && gi.t - mo.t < 14 && gi.t - mo.t >= 0) return 'Offside in the build-up';
+    const mf = this.missedFoul;
+    if (mf && mf.offender.side === gi.side && gi.t - mf.t < 12 && gi.t - mf.t >= 0) return 'Foul in the build-up';
+    return null;
+  }
 
   private updateGoal(dt: number): void {
     void dt;
@@ -844,8 +859,24 @@ export class Match {
         else { p.intent.mx = 0; p.intent.my = 0; }
       }
     }
-    if (t > 5.5) {
-      if (this.cfg.var && this.pendingVarGoal) { this.pendingVarGoal = false; }
+    if (this.cfg.var && this.pendingVarGoal) {
+      if (!this.varStarted) { this.varStarted = true; this.varEnd = t + 3; this.bus.emit('commentary', { text: 'VAR is checking the goal…', minute: this.minute() }); }
+      if (t < this.varEnd) return;
+      this.pendingVarGoal = false; this.varStarted = false;
+      const gi = this.goalInfo!;
+      const reason = this.varReason(gi);
+      if (reason) {
+        this.bus.emit('var', { kind: 'goal', outcome: 'overturned', reason });
+        this.teams[gi.side].score--; gi.scorer.stats.goals = Math.max(0, gi.scorer.stats.goals - 1);
+        this.eventLog = this.eventLog.filter((e) => !(e.type === 'goal' && e.player === gi.scorer.data.id && e.side === gi.side)).slice();
+        this.owner = null;
+        startSetPiece(this, { type: 'indirectFreeKick', side: other(gi.side), x: clamp(this.missedOffside?.player.x ?? this.ball.x * 0 + 30 * -this.teams[gi.side].dir, -HALF_L + 8, HALF_L - 8), y: this.missedOffside?.player.y ?? 0 });
+        this.missedOffside = null; this.missedFoul = null;
+        return;
+      }
+      this.bus.emit('var', { kind: 'goal', outcome: 'confirmed', reason: 'No infringement' });
+    }
+    if (t > 5.5 + (this.varStarted ? 3 : 0)) {
       if (this.maybeEndPeriod()) return;
       const conceding = other(this.goalInfo!.side);
       this.startKickoff(conceding, true);

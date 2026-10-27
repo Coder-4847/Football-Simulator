@@ -187,8 +187,10 @@ export class Ball {
       }
       // net volume: behind the goal line, between posts, under the bar
       const behind = (this.x - gx) * sgn; // depth beyond the line
-      if (behind > 0 && Math.abs(this.y) < HALF_GOAL && this.z < GOAL_H + 0.3) this.inNet = true;
-      if (this.inNet && Math.abs(this.x - gx) < GOAL_DEPTH + 1) {
+      const inside = behind > -BALL_R && Math.abs(this.y) < HALF_GOAL + 0.05 && this.z < GOAL_H + 0.3 && behind < GOAL_DEPTH + 0.5;
+      if (behind > 0 && inside) this.inNet = true;
+      else if (!inside || behind < -0.3) { if (this.inNet && (!inside)) this.inNet = false; }
+      if (this.inNet && inside) {
         const back = gx + sgn * GOAL_DEPTH;
         let hit = false;
         if ((this.x - back) * sgn > -BALL_R) { this.x = back - sgn * BALL_R; this.vx *= -0.08; this.vy *= 0.35; this.vz *= 0.35; hit = true; }

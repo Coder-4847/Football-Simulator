@@ -22,6 +22,7 @@ export class Hud {
   private prompts = h('div', { class: 'prompts' });
   private replayTag = h('div', { class: 'replay-tag' }, 'REPLAY');
   private fps = h('div', { class: 'fps' });
+  private pens = h('div', { class: 'card', style: 'position:absolute;left:50%;top:70px;transform:translateX(-50%);padding:8px 14px;display:none;font-size:14px;letter-spacing:.2em' });
   private labels: HTMLElement[] = [];
   private tickerT = 0;
   private bannerT = 0;
@@ -29,7 +30,7 @@ export class Hud {
   private cardTimers: number[] = [];
 
   constructor(private match: Match, private view: MatchView, private getDevice: () => Device) {
-    this.root.append(this.score, this.feed, this.ticker, this.banner, this.radar, this.power, this.prompts, this.replayTag, this.fps);
+    this.root.append(this.score, this.feed, this.ticker, this.banner, this.radar, this.power, this.prompts, this.replayTag, this.fps, this.pens);
     this.buildScore();
     const bus = match.bus;
     bus.on('goal', (e) => {
@@ -93,11 +94,25 @@ export class Hud {
     if (this.bannerT > 0) { this.bannerT -= dt; if (this.bannerT <= 0) this.banner.classList.remove('on'); }
     this.fps.textContent = settings.value.graphics.showFps ? `${Math.round(this.view.fps)} fps` : '';
 
+    this.updatePens();
     this.updateRadar();
     this.updateLabels(humans);
     this.updatePower(humans);
     this.updatePrompts(humans);
     this.radar.style.display = settings.value.gameplay.radar && !paused ? 'block' : 'none';
+    const touch = this.getDevice() === 'touch';
+    const rs = this.radar.style;
+    rs.bottom = touch ? 'auto' : 'calc(var(--safe-b) + 16px)'; rs.top = touch ? 'calc(var(--safe-t) + 14px)' : 'auto';
+    rs.width = touch ? '130px' : '180px'; rs.height = touch ? '84px' : '116px';
+    this.feed.style.top = touch ? 'calc(var(--safe-t) + 106px)' : '';
+  }
+
+  private updatePens(): void {
+    const so = this.match.shootout;
+    if (!so) { this.pens.style.display = 'none'; return; }
+    this.pens.style.display = 'block';
+    const row = (side: 0 | 1): string => so.kicks.filter((k) => k.side === side).map((k) => (k.scored ? '●' : '✕')).join(' ') || '–';
+    this.pens.innerHTML = `<div>${this.match.teams[0].short}  ${row(0)}</div><div>${this.match.teams[1].short}  ${row(1)}</div>`;
   }
 
   private updateRadar(): void {

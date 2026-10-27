@@ -12,6 +12,7 @@ import { audio } from '../audio/engine';
 import { STADIUM_STYLES } from '../render/stadium';
 import { DIFFICULTIES } from '../match/types';
 import { qualityFor, defaultQualityName, isMobile } from '../render/quality';
+import { runBenchmark } from '../render/bench';
 import type { MatchConfig } from '../match/types';
 import type { Side } from '../match/constants';
 
@@ -47,11 +48,16 @@ export class App {
     window.addEventListener('pointerdown', unlock); window.addEventListener('keydown', unlock);
     document.addEventListener('contextmenu', (e) => e.preventDefault());
     await new Promise((r) => setTimeout(r, 120));
-    this.hideLoader();
     if (!settings.value.graphics.autoDetected) {
-      settings.update((s) => { s.graphics.autoDetected = true; s.graphics.preset = detectPreset(); });
+      const guess = detectPreset();
+      this.showLoader('Detecting graphics capability', 0.9);
+      const measured = guess === 'Low' ? 'Low' : await runBenchmark();
+      const rank = ['Low', 'Medium', 'High', 'Ultra'];
+      const pick = rank[Math.min(rank.indexOf(guess), rank.indexOf(measured))] as 'Low';
+      settings.update((s) => { s.graphics.autoDetected = true; s.graphics.preset = pick; });
     }
-    this.go('main');
+    this.hideLoader();
+    void this.go('main');
   }
 
   showLoader(text: string, p: number): void {

@@ -381,10 +381,13 @@ export function doPassSetPiece(m: Match, taker: MPlayer, spec: PassSpec): void {
   takeSetPiece(m, () => executePass(m, taker, spec));
 }
 export function doShotSetPiece(m: Match, taker: MPlayer, spec: ShotSpec): void {
+  const wall = m.sp?.wall ?? [];
   takeSetPiece(m, () => {
     if (m.sp?.type === 'penalty') m.lastGoalFromPenalty = true;
     if (m.sp?.type === 'penalty') m.notifyPenaltyTaken(taker, spec);
     executeShot(m, taker, spec);
+    // the wall jumps as the ball is struck
+    for (const w of wall) if (w.active() && m.rng.chance(0.75)) w.setState('jump', 0.7);
   });
 }
 
@@ -569,6 +572,11 @@ export function callFoul(m: Match, offender: MPlayer, victim: MPlayer, kind: str
   const inBox = Math.abs(x - ownGoalX) < BOX_L && Math.abs(y) < 20.16;
   offender.stats.fouls++; victim.stats.fouled++; t.stats.fouls++;
   // advantage
+  if (m.cfg.var && kind !== 'handball' && severity > 0.3 && !inBox && m.rng.chance(0.08)) {
+    // the referee misses it; the VAR may still rule the goal out later
+    m.missedFoul = { t: m.time, offender, victim };
+    return;
+  }
   const vt = m.teams[victim.side];
   const victimKeeps = (m.owner && m.owner.side === victim.side) || (!m.owner && m.lastTouch && m.lastTouch.side === victim.side && m.ball.speedXY() > 4);
   const attackingDepth = m.depth(victim.side, m.ball.x);
@@ -606,8 +614,15 @@ export function awardFoul(m: Match, offender: MPlayer, victim: MPlayer, x: numbe
   m.bus.emit('whistle', { kind: 'foul' });
   m.owner = null;
   if (card) giveCard(m, offender, card);
-  const pen = inBox && kind !== 'offsideLike';
+  let pen = inBox && kind !== 'offsideLike';
   const side = victim.side;
+  if (m.cfg.var && pen && kind !== 'handball' && offender.stats.fouls > 0 && m.rng.chance(0.12)) {
+    m.bus.emit('var', { kind: 'penalty', outcome: 'overturned', reason: 'Not enough contact' });
+    pen = false; card = null;
+    startSetPiece(m, { type: 'indirectFreeKick', side: other(side), x: clamp(offender.x, -HALF_L + 1, HALF_L - 1), y: clamp(offender.y, -HALF_W + 1, HALF_W - 1) }); void y; void x;
+    return;
+  }
+  if (m.cfg.var && card === 'red' && m.rng.chance(0.2)) { m.bus.emit('var', { kind: 'red', outcome: 'overturned', reason: 'Downgraded to yellow' }); card = 'yellow'; }
   if (m.cfg.var && (pen || card === 'red')) { /* review handled in rules timers via flag */ m.varCheck = { kind: pen ? 'penalty' : 'red', offender, victim, card }; }
   if (m.injuryQueue.length) { m.phase = 'injury'; m.phaseT = 0; }
   if (pen) {

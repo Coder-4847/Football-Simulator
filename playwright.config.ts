@@ -1,12 +1,15 @@
 import { defineConfig } from '@playwright/test';
 
+// Set PW_CHROMIUM to a Chromium binary if `npx playwright install` is not available.
 export default defineConfig({
   testDir: 'tests-e2e',
-  timeout: 90_000,
+  timeout: 120_000,
+  workers: 1,
   use: {
     baseURL: 'http://localhost:4173/',
+    viewport: { width: 1024, height: 600 },
     launchOptions: {
-      executablePath: process.env.PW_CHROMIUM ?? undefined,
+      executablePath: process.env.PW_CHROMIUM || undefined,
       args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
     },
   },

@@ -65,9 +65,11 @@ export class TouchControls {
 
   setVisible(v: boolean): void { this.root.style.display = v ? 'block' : 'none'; if (!v) this.releaseAll(); }
 
-  setContext(c: Context): void {
-    if (c === this.context) return;
-    this.context = c;
+  private sub = '';
+  /** `sub` refines the set-piece context (kickoff, throwIn, goalKick, corner, freeKick, penalty). */
+  setContext(c: Context, sub = ''): void {
+    if (c === this.context && sub === this.sub) return;
+    this.context = c; this.sub = sub;
     this.relabel();
   }
 
@@ -86,13 +88,23 @@ export class TouchControls {
   }
 
   private relabel(): void {
-    const labels = LABELS[this.context];
+    const labels: Partial<Record<Btn, string>> = { ...LABELS[this.context] };
+    const SUB: Record<string, Partial<Record<Btn, string>>> = {
+      kickoff: { b1: 'PASS', b2: '', b3: '', b4: '', modA: '', modB: '', precise: '', sprint: '' },
+      throwIn: { b1: 'THROW', b2: '', b3: 'LONG', b4: 'QUICK', modA: '', modB: '', precise: 'AIM', sprint: '' },
+      goalKick: { b1: 'SHORT', b2: '', b3: 'LONG', b4: 'LONG', modA: '', modB: '', precise: 'AIM', sprint: '' },
+      corner: { b1: 'SHORT', b2: '', b3: 'CROSS', b4: 'CROSS', modA: 'OUTSWING', modB: 'INSWING', precise: 'AIM', sprint: '' },
+      freeKick: { b1: 'SHORT', b2: 'THROUGH', b3: 'CROSS', b4: 'SHOOT', modA: 'WALL ◀', modB: 'WALL ▶', precise: 'AIM', sprint: '' },
+      penalty: { b4: 'SHOOT', b3: 'CHIP', b1: 'LOW', precise: 'AIM' },
+    };
+    if (this.context === 'setpiece' || this.context === 'penalty') Object.assign(labels, SUB[this.sub] ?? {});
     for (const [id, el] of this.buttons) {
       const span = el.firstElementChild as HTMLSpanElement;
       if (id.startsWith('skill') && id !== 'skillBtn') continue;
       const t = labels[id as Btn];
       span.textContent = t ?? (id === 'pause' ? 'II' : '');
       el.classList.toggle('dim', !t && id !== 'pause');
+      if (!id.startsWith('skill') || id === 'skillBtn') el.style.visibility = t || id === 'pause' || this.editing ? 'visible' : 'hidden';
       const col = COLORS[id as Btn];
       if (col) el.style.setProperty('--btn', col);
     }

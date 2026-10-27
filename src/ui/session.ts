@@ -86,8 +86,8 @@ export class GameSession {
     // humans
     o.input.setSlots(o.humans.map((hs) => hs.scheme));
     for (const hs of o.humans) { const hi = m.addHuman(hs.side, hs.keeperOnly); if (hs.lockId) m.humans[hi]!.lockId = hs.lockId; }
-    o.input.touch?.setVisible((o.input.active as string) === 'touch');
-    o.input.onDevice = (d): void => { this.lastDevice = d; o.input.touch?.setVisible(d === 'touch' && !this.paused); };
+    o.input.touch?.setVisible((o.input.active as string) === 'touch' && !!o.skipIntro);
+    o.input.onDevice = (d): void => { this.lastDevice = d; o.input.touch?.setVisible(d === 'touch' && !this.paused && !this.intro); };
     // audio
     audio.startCrowd();
     const bus = m.bus;
@@ -130,7 +130,7 @@ export class GameSession {
     this.view.setCinematic('lineup');
     this.overlay = lineupPanel(m); this.root.appendChild(this.overlay);
     audio.whistle('short');
-    const go = (): void => { if (!this.intro) return; this.intro = false; this.overlay?.remove(); this.overlay = null; this.view.setCinematic(null); m.startMatch(); };
+    const go = (): void => { if (!this.intro) return; this.intro = false; this.overlay?.remove(); this.overlay = null; this.view.setCinematic(null); m.startMatch(); if ((this.o.input.active as string) === 'touch') this.o.input.touch?.setVisible(true); };
     setTimeout(() => { if (this.intro) this.waitSkip(go); }, 1200);
     setTimeout(go, 9000);
   }
@@ -164,7 +164,7 @@ export class GameSession {
     // context for touch + stick yaw
     const hs = m.humans[0];
     this.controlled = hs?.player ?? null;
-    if (hs) input.touch?.setContext(humanContext(m, hs));
+    if (hs) input.touch?.setContext(humanContext(m, hs), m.sp && m.sp.phase !== 'done' ? (m.sp.type === 'indirectFreeKick' ? 'freeKick' : m.sp.type) : '');
     input.yaw = this.view.director.inputYaw;
     this.phaseWatch();
   }
@@ -267,6 +267,7 @@ export class GameSession {
         CAMERA_MODES.map((c) => h('option', { value: c.id, selected: this.view.director.mode === c.id }, c.name)))),
       h('div', { class: 'field' }, h('label', null, 'Camera height'), h('input', { type: 'range', min: 0.6, max: 1.6, step: 0.05, value: settings.value.gameplay.cameraHeight, oninput: (e: Event): void => { const v = Number((e.target as HTMLInputElement).value); this.view.director.heightScale = v; settings.update((s) => { s.gameplay.cameraHeight = v; }); } })),
       h('div', { class: 'field' }, h('label', null, 'Camera zoom'), h('input', { type: 'range', min: 0.6, max: 1.6, step: 0.05, value: settings.value.gameplay.cameraZoom, oninput: (e: Event): void => { const v = Number((e.target as HTMLInputElement).value); this.view.director.zoomScale = v; settings.update((s) => { s.gameplay.cameraZoom = v; }); } })),
+      h('button', { class: 'btn', onclick: (): void => { if (document.fullscreenElement) void document.exitFullscreen(); else void document.documentElement.requestFullscreen?.().then(() => (screen.orientation as unknown as { lock?: (o: string) => Promise<void> }).lock?.('landscape').catch(() => undefined)).catch(() => undefined); } }, 'Fullscreen'),
       this.o.openSettings ? h('button', { class: 'btn', onclick: (): void => { const host = h('div'); this.o.openSettings!(host); this.showOverlay(modal(h('div', { class: 'col' }, host, h('button', { class: 'btn', onclick: (): void => this.showPause() }, 'Back')))); } }, 'Settings & controls') : null,
       h('button', { class: 'btn danger', onclick: (): void => { if (confirm('Quit this match? Progress will be lost.')) this.exit(true); } }, 'Quit match'));
     this.showOverlay(modal(h('div', { class: 'col' }, h('h2', null, 'Paused'), h('div', { class: 'muted' }, `${m.teams[0].name} ${m.teams[0].score} – ${m.teams[1].score} ${m.teams[1].name} · ${m.displayClock().text}`), list)));
