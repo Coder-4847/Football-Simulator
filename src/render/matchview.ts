@@ -163,7 +163,7 @@ export class MatchView {
     this.ballShadow.rotation.x = -Math.PI / 2; this.scene.add(this.ballShadow);
 
     // markers
-    this.targetRing = new Mesh(new RingGeometry(0.55, 0.72, 32), new MeshBasicMaterial({ color: 0xb8c4d4, transparent: true, opacity: 0.4, depthWrite: false }));
+    this.targetRing = new Mesh(new RingGeometry(0.62, 0.72, 32), new MeshBasicMaterial({ color: 0xb8c4d4, transparent: true, opacity: 0.22, depthWrite: false }));
     this.targetRing.rotation.x = -Math.PI / 2; this.targetRing.visible = false; this.scene.add(this.targetRing);
     const lg = new BufferGeometry(); lg.setAttribute('position', new BufferAttribute(new Float32Array(6), 3));
     this.aimLine = new Line(lg, new LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8 }));
@@ -685,9 +685,9 @@ export class MatchView {
       if (!mk) {
         // deliberately dim: toneMapped, low opacity, so it reads as a soft ground marker and never triggers bloom
         const col = i === 0 ? 0x2f5f9e : i === 1 ? 0x9e3a3a : i === 2 ? 0x2f8a52 : 0x9a7a2a;
-        const ring = new Mesh(new RingGeometry(0.62, 0.72, 40), new MeshBasicMaterial({ color: col, transparent: true, opacity: 0.4, depthWrite: false }));
+        const ring = new Mesh(new RingGeometry(0.66, 0.72, 48), new MeshBasicMaterial({ color: col, transparent: true, opacity: 0.2, depthWrite: false }));
         ring.rotation.x = -Math.PI / 2;
-        const arrow = new Mesh(new ConeGeometry(0.16, 0.3, 16), new MeshBasicMaterial({ color: col, transparent: true, opacity: 0.55 }));
+        const arrow = new Mesh(new ConeGeometry(0.14, 0.26, 16), new MeshBasicMaterial({ color: col, transparent: true, opacity: 0.4 }));
         arrow.rotation.x = Math.PI;
         this.scene.add(ring, arrow); mk = { ring, arrow }; this.markers.set(i, mk);
       }

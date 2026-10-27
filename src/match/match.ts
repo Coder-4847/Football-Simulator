@@ -350,8 +350,8 @@ export class Match {
       if (mag > 1) { mx /= mag; my /= mag; }
       let wantVx = mx * cap, wantVy = my * cap;
 
-      let accel = 4.6 + 3.6 * (a.acceleration / 99);
-      let brake = accel * 1.5;
+      let accel = 9 + 5.5 * (a.acceleration / 99);
+      let brake = accel * 1.6;
       switch (p.state) {
         case 'slide': { wantVx = 0; wantVy = 0; brake = 4.2; break; }
         case 'down': case 'save': { wantVx = 0; wantVy = 0; brake = 5; break; }
@@ -371,7 +371,7 @@ export class Match {
       let turnPenalty = 1;
       if (sp > 2 && mag > 0.1) {
         const dot = (p.vx * mx + p.vy * my) / (sp * Math.max(mag, 1e-6));
-        turnPenalty = lerp(0.45 + 0.35 * (a.agility / 99), 1, clamp01((dot + 0.3) / 1.3));
+        turnPenalty = lerp(0.6 + 0.3 * (a.agility / 99), 1, clamp01((dot + 0.3) / 1.3));
       }
       if (this.cfg.weather !== 'clear' && this.cfg.weather !== 'fog' && p.state === 'normal' && turnPenalty < 0.6 && sp > 6.5 && this.rng.chance(this.cfg.weather === 'snow' ? 0.004 : 0.0025)) { p.setState('stumble', 0.55); p.vx *= 0.5; p.vy *= 0.5; }
       if (p.state !== 'skill') {
