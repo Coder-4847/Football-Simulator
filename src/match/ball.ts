@@ -38,12 +38,14 @@ export class Ball {
   private knuckleT = 0;
   onEvent: ((e: BallEvent) => void) | null = null;
   inNet = false;
+  /** seconds the ball stays put after a kick is scheduled (animation sync) */
+  frozen = 0;
 
   reset(x = 0, y = 0, z = BALL_R): void {
     this.x = this.px = x; this.y = this.py = y; this.z = this.pz = z;
     this.vx = this.vy = this.vz = 0;
     this.wx = this.wy = this.wz = 0;
-    this.knuckle = 0; this.inNet = false;
+    this.knuckle = 0; this.inNet = false; this.frozen = 0;
   }
 
   speed(): number { return Math.hypot(this.vx, this.vy, this.vz); }
@@ -61,6 +63,7 @@ export class Ball {
   savePrev(): void { this.px = this.x; this.py = this.y; this.pz = this.z; }
 
   step(dt: number): void {
+    if (this.frozen > 0) { this.frozen -= dt; return; }
     const s = this.surface;
     // gravity
     this.vz -= GRAVITY * dt;

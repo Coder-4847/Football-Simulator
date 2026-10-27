@@ -1,12 +1,14 @@
 import type { Match } from './match';
 import type { PState } from './entities';
+import { skillById } from './skills';
 
 const STATES: PState[] = ['normal', 'kick', 'tackle', 'slide', 'jump', 'dive', 'down', 'celebrate', 'throw', 'skill', 'stumble', 'wait', 'save'];
 export const stateCode = (s: PState): number => Math.max(0, STATES.indexOf(s));
 export const stateFromCode = (c: number): PState => STATES[c] ?? 'normal';
 
 /** Floats per player in a frame: x, y, face, state, stateT, stride, speed, extra(skill id hash / dive dir) */
-export const PF = 9;
+export const PF = 11;
+export const ANIM_LIST = ['feint', 'dragBack', 'stepOver', 'spin', 'flick', 'lift', 'hop', 'roll', 'stop', 'burst', 'shuffle', 'fakeKick'];
 const HEAD = 12; // ball x,y,z, ball rx,ry,rz(unused), ref x,y,face, assistants x0 x1, time
 export const FRAME_SIZE = HEAD + 22 * PF;
 
@@ -37,7 +39,10 @@ export class ReplayBuffer {
         const p = t.players[i];
         if (!p) { o += PF; continue; }
         f[o] = p.x; f[o + 1] = p.y; f[o + 2] = p.face; f[o + 3] = p.sentOff ? 99 : stateCode(p.state); f[o + 4] = p.stateT; f[o + 5] = p.stride;
-        f[o + 6] = Math.hypot(p.vx, p.vy); f[o + 7] = p.skill ? 1 : p.state === 'dive' ? p.sx : 0; f[o + 8] = p.sz;
+        f[o + 6] = Math.hypot(p.vx, p.vy);
+        const sk = p.skill ? skillById(p.skill.id) : undefined;
+        f[o + 7] = sk ? 10 + Math.max(0, ANIM_LIST.indexOf(sk.anim)) : p.state === 'dive' ? p.sx : 0; f[o + 8] = p.sz;
+        f[o + 9] = (m.owner === p ? 1 : 0) | (p.ballSide === 'R' ? 2 : 0); f[o + 10] = 1 - p.stamina;
         o += PF;
       }
     }
@@ -81,5 +86,5 @@ export function sampleFrames(frames: Float32Array[], index: number, out: Float32
   const a = frames[i0]!, b = frames[i1]!;
   for (let k = 0; k < FRAME_SIZE; k++) out[k] = a[k]! + (b[k]! - a[k]!) * t;
   // non-interpolated fields
-  for (let pi = 0; pi < 22; pi++) { const o = HEAD + pi * PF; out[o + 3] = a[o + 3]!; out[o + 4] = a[o + 4]!; out[o + 7] = a[o + 7]!; out[o + 8] = a[o + 8]!; const fa = a[o + 2]!, fb = b[o + 2]!; let d = fb - fa; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; out[o + 2] = fa + d * t; }
+  for (let pi = 0; pi < 22; pi++) { const o = HEAD + pi * PF; out[o + 3] = a[o + 3]!; out[o + 4] = a[o + 4]!; out[o + 7] = a[o + 7]!; out[o + 8] = a[o + 8]!; out[o + 9] = a[o + 9]!; const fa = a[o + 2]!, fb = b[o + 2]!; let d = fb - fa; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; out[o + 2] = fa + d * t; }
 }

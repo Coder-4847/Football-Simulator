@@ -387,7 +387,7 @@ export class Match {
 
       // stride & stamina
       const spd2 = Math.hypot(p.vx, p.vy);
-      p.stride += spd2 * dt / 1.9;
+      p.stride += spd2 * dt / (1.6 + 0.27 * spd2);
       p.stats.distance += spd2 * dt;
       if (this.cfg.fatigue && p.state !== 'down') {
         const stamF = 1.45 - a.stamina / 100;
@@ -485,11 +485,13 @@ export class Match {
       // strike executed from distance (e.g. queued action): ball stays where it is
     }
     b.kick(vx, vy, vz, wx, wy, wz, knuckle);
+    // the ball is held for a few ms so the striking animation reaches the ball first
+    b.frozen = tag.startsWith('shot:header') ? 0 : tag.startsWith('shot') ? 0.09 : tag === 'throw' ? 0.1 : tag.startsWith('pass') ? 0.06 : 0;
     this.owner = null;
     this.setTouch(p, true);
-    this.lastTouchByFoot = !p.isGK() || tag.startsWith('pass') || true;
-    p.noTouchUntil = this.time + 0.3;
-    p.setState('kick', 0.32);
+    this.lastTouchByFoot = true;
+    p.noTouchUntil = this.time + 0.3 + b.frozen;
+    p.setState('kick', 0.34, tag);
     p.stats.touches++;
     this.possessionSide = p.side;
     void tag;
@@ -567,7 +569,7 @@ export class Match {
     const b = this.ball;
     if (this.phase === 'setpiece' && this.sp && this.sp.phase !== 'done') return;
     if (this.phase === 'goal' || this.phase === 'halftime' || this.phase === 'extratimeBreak') return;
-    if (b.inNet) return;
+    if (b.inNet || b.frozen > 0) return;
     if (this.owner) {
       // owner may lose it to a tackle only through intent; also check ball stolen by keeper (handled elsewhere)
       this.owner.stats.touches += 0;
