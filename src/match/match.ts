@@ -95,6 +95,7 @@ export class Match {
   all: MPlayer[] = [];
   dynamicBonus = 0;
   lastTouchByFoot = true;
+  eventLog: Array<{ minute: number; type: 'goal' | 'yellow' | 'red' | 'injury' | 'sub'; side: Side; player: string; assist?: string; text: string }> = [];
   penaltyKick: { taker: MPlayer; t: number; side: Side } | null = null;
   missedOffside: { player: MPlayer; t: number } | null = null;
   varCheck: { kind: 'penalty' | 'red' | 'goal'; offender?: MPlayer; victim?: MPlayer; card?: 'yellow' | 'red' | null } | null = null;
@@ -156,7 +157,9 @@ export class Match {
       else if (e.kind === 'bounce') this.bus.emit('bounce', { speed: e.speed });
     };
     this.ball.reset(0, 0);
-    this.bus.on('goal', () => { /* hook for external listeners */ });
+    this.bus.on('goal', (e) => this.eventLog.push({ minute: e.minute, type: 'goal', side: e.side, player: e.scorer.data.id, assist: e.assist?.data.id, text: `${e.scorer.data.shortName}${e.assist ? ` (assist ${e.assist.data.shortName})` : ''}${e.penalty ? ' (pen)' : ''}${e.ownGoal ? ' (og)' : ''}` }));
+    this.bus.on('card', (e) => this.eventLog.push({ minute: this.minute(), type: e.color, side: e.player.side, player: e.player.data.id, text: e.player.data.shortName }));
+    this.bus.on('injury', (e) => this.eventLog.push({ minute: this.minute(), type: 'injury', side: e.player.side, player: e.player.data.id, text: e.player.data.shortName }));
     commentate(this);
   }
 

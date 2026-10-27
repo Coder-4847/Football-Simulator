@@ -14,7 +14,7 @@ import { humanContext } from '../match/human';
 import { audio } from '../audio/engine';
 import { defaultMatchConfig } from '../match/types';
 
-export interface HumanSpec { side: Side; scheme: SlotScheme; keeperOnly?: boolean }
+export interface HumanSpec { side: Side; scheme: SlotScheme; keeperOnly?: boolean; lockId?: string }
 export interface SessionResult { match: Match; score: [number, number]; winner: Side | null; quit: boolean }
 
 export interface SessionOptions {
@@ -85,7 +85,7 @@ export class GameSession {
     if (o.hideScoreboard) (this.hud.root.querySelector('.scoreboard') as HTMLElement).style.display = 'none';
     // humans
     o.input.setSlots(o.humans.map((hs) => hs.scheme));
-    for (const hs of o.humans) m.addHuman(hs.side, hs.keeperOnly);
+    for (const hs of o.humans) { const hi = m.addHuman(hs.side, hs.keeperOnly); if (hs.lockId) m.humans[hi]!.lockId = hs.lockId; }
     o.input.touch?.setVisible((o.input.active as string) === 'touch');
     o.input.onDevice = (d): void => { this.lastDevice = d; o.input.touch?.setVisible(d === 'touch' && !this.paused); };
     // audio
@@ -116,6 +116,8 @@ export class GameSession {
     this.beginIntro();
     this.loop.start();
   }
+
+  get match(): Match { return this.o.match; }
 
   private onVis = (): void => { if (document.hidden && !this.paused && !this.intro && !this.ended) this.pause(); };
 

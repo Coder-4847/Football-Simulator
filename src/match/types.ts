@@ -136,6 +136,8 @@ export interface HumanSlot {
   keeperOnly: boolean;
   /** buffered shot/pass for first-time actions */
   queued: { btn: string; t: number; hold: number; mods: string[] } | null;
+  /** career 'be a pro' mode: this human only ever controls the player with this id */
+  lockId?: string;
   /** shot power charging */
   charge: { btn: string; t: number } | null;
 }

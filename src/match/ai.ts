@@ -185,6 +185,7 @@ export function updateTeamAI(m: Match, team: Team, dt: number): void {
   for (const p of team.players) {
     if (!p.active()) continue;
     if (p.human >= 0 && m.humans[p.human]?.player === p) continue; // human-driven
+    if (team.frozen) { resetIntent(p); continue; }
     p.thinkT -= dt;
     if (p.state === 'down' || p.state === 'slide' || p.state === 'dive' || p.state === 'skill') { resetIntent(p); continue; }
     switch (m.phase) {

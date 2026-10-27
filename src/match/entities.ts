@@ -126,6 +126,8 @@ export class Team {
   gkKit: { primary: string; secondary: string };
   clubId: string;
   aiLevel = 0.5;
+  /** drills: AI-controlled players of a frozen team stand still */
+  frozen = false;
   /** Players which have been sent off + subbed to compute numbers on pitch */
   constructor(public side: Side, setup: TeamSetup) {
     this.formation = setup.formation; this.tactics = setup.tactics; this.name = setup.name; this.short = setup.short;

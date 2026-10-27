@@ -104,3 +104,4 @@ td { padding: 8px 10px; border-bottom: 1px solid var(--line); } tr.sel td { back
 .orient-msg { display: none; position: absolute; inset: 0; background: var(--bg); place-items: center; font-size: 20px; z-index: 40; text-align: center; padding: 30px; }
 @media (orientation: portrait) and (pointer: coarse) { .touch-root .orient-msg { display: grid; } }
 canvas { display: block; touch-action: none; outline: none; }
+.ui-layer > * { flex-shrink: 0; }

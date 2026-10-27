@@ -47,3 +47,18 @@ export function playerResults(m: Match): PlayerResult[] {
   }
   return out;
 }
+
+import type { SimResult, SimPlayerLine } from '../sim/engine';
+
+/** Converts a played (3D) match into the same result shape the fast sim produces. */
+export function toSimResult(m: Match): SimResult {
+  const [A, B] = summarize(m);
+  const lines: SimPlayerLine[] = playerResults(m).map((r) => ({ id: r.id, side: r.side, rating: r.rating, goals: r.goals, assists: r.assists, yellow: r.yellow, red: r.red, injured: r.injured, minutes: r.minutes, shots: 0 }));
+  const score: [number, number] = [m.teams[0].score, m.teams[1].score];
+  return {
+    score, events: m.eventLog.slice().sort((a, b) => a.minute - b.minute), players: lines,
+    stats: { possession: [A.possession, B.possession], shots: [A.shots, B.shots], onTarget: [A.onTarget, B.onTarget], xg: [A.xg, B.xg], corners: [A.corners, B.corners], fouls: [A.fouls, B.fouls], yellow: [A.yellow, B.yellow], red: [A.red, B.red] },
+    shootout: m.shootout ? [m.shootout.score[0], m.shootout.score[1]] : undefined,
+    winner: m.winner ?? (score[0] === score[1] ? null : score[0] > score[1] ? 0 : 1),
+  };
+}

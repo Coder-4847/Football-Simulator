@@ -64,6 +64,11 @@ function ensurePlayer(m: Match, h: HumanSlot, idx: number): void {
   if (!valid(h.player)) h.player = null;
   const takenByOther = (p: MPlayer): boolean => m.humans.some((o, j) => j !== idx && o.player === p);
 
+  if (h.lockId) {
+    const lp = team.players.find((p) => p.data.id === h.lockId && p.active()) ?? null;
+    if (lp !== h.player) { if (h.player) h.player.human = -1; h.player = lp; if (lp) lp.human = idx; }
+    return;
+  }
   if (h.keeperOnly) {
     const gk = m.keeperOf(h.side);
     if (gk && h.player !== gk) { setSelected(m, h, idx, gk); }
