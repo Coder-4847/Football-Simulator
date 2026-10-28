@@ -7,7 +7,7 @@ import { startSetPiece } from '../match/rules';
 import { SKILL_MOVES, skillById } from '../match/skills';
 import { settings } from '../core/settings';
 import { HALF_GOAL, HALF_L, GOAL_H, BALL_R } from '../match/constants';
-import { CircleGeometry, Mesh, MeshBasicMaterial, RingGeometry, CylinderGeometry, Group } from 'three';
+import type { DrillMarker } from '../render/matchview';
 import type { MPlayer } from '../match/entities';
 import { keyLabel } from '../input/prompts';
 import { findConflictFree } from './trainingutil';
@@ -42,7 +42,8 @@ function startDrill(app: App, kind: Drill): void {
   const humans = [{ side: side as 0 | 1, scheme, keeperOnly: kind === 'keeper' }];
   let init = false;
   const hud = h('div', { class: 'card', style: 'position:absolute;left:50%;transform:translateX(-50%);top:70px;pointer-events:none;text-align:center;min-width:260px' });
-  const drillRoot = new Group();
+  const drill: DrillMarker[] = [];
+  const gateColor = (i: number, gate: number): string => (i === gate ? '#3ddc97' : i < gate ? '#6b7280' : '#f59e0b');
   const state = { attempts: 0, score: 0, hits: 0, t: 0, target: 0, gate: 0, penalty: 0, cooldown: 0, waiting: false, lastTouchAttempt: -1, passes: 0, okPasses: 0, best: Infinity, done: false, lastSkill: '—', skillOK: 0, skillFail: 0 };
   const rnd = (a: number, b: number): number => a + Math.random() * (b - a);
   const attack = match.teams[0].dir;
@@ -53,14 +54,13 @@ function startDrill(app: App, kind: Drill): void {
     m.forceResume(); m.sp = null; m.phase = 'play'; p.x = p.px = x; p.y = p.py = y; p.vx = p.vy = 0; p.face = p.pface = face;
     m.ball.reset(x + Math.cos(face) * 0.7, y + Math.sin(face) * 0.7); m.owner = p; m.possessionSide = 0; m.lastTouch = p; m.lastTouchT = m.time;
   };
-  const target = (x: number, y: number, z: number, color: number): Mesh => { const mesh = new Mesh(new RingGeometry(0.35, 0.5, 24), new MeshBasicMaterial({ color, side: 2, transparent: true, opacity: 0.9, depthTest: false })); mesh.position.set(x, z, y); mesh.rotation.y = Math.PI / 2; return mesh; };
   let lastScoreCheck = 0;
 
   const onTick = (m: Match, dt: number): void => {
     const sess = app.session; if (!sess) return;
     if (!init) {
       init = true;
-      sess.root.appendChild(hud); sess.view.scene.add(drillRoot);
+      sess.root.appendChild(hud); sess.view.drill = drill;
       m.forceResume();
       m.teams[1].frozen = kind !== 'freekick' && kind !== 'penalty' && kind !== 'keeper';
       if (kind === 'skilllab') { sess.root.appendChild(skillLabPanel(app, m, state)); }
@@ -100,9 +100,9 @@ function startDrill(app: App, kind: Drill): void {
           state.attempts++; state.target = Math.floor(Math.random() * 4);
           const gx = attack * HALF_L;
           give(m, p, gx - attack * rnd(14, 24), rnd(-12, 12));
-          while (drillRoot.children.length) drillRoot.remove(drillRoot.children[0]!);
+          drill.length = 0;
           const ty = [(-1), 1, -1, 1][state.target]! * HALF_GOAL * 0.78, tz = [0.5, 0.5, 2.0, 2.0][state.target]!;
-          drillRoot.add(target(gx, ty, tz, 0x3ddc97));
+          drill.push({ kind: 'ring', x: gx, y: ty, r: 0.6, color: tz > 1 ? '#38bdf8' : '#3ddc97', pulse: true, label: tz > 1 ? 'HIGH' : 'LOW' });
           state.cooldown = 3;
         }
         if (state.lastTouchAttempt !== state.attempts && m.ball.speed() > 12 && Math.abs(m.ball.x) > HALF_L - 0.3) {
@@ -129,10 +129,11 @@ function startDrill(app: App, kind: Drill): void {
         if (!t || m.owner === t) {
           if (t && m.owner === t) { state.score++; toast('Nice!'); }
           state.target = Math.floor(Math.random() * Math.max(1, mates.filter((q) => q !== m.owner).length));
-          while (drillRoot.children.length) drillRoot.remove(drillRoot.children[0]!);
+          drill.length = 0;
         }
         const tt = m.teams[0].players.filter((q) => q.active() && q.x > -44 && q !== m.owner)[state.target];
-        if (tt) { drillRoot.clear(); drillRoot.add(target(tt.x, tt.y, 0.1, 0xf2c14e)); drillRoot.children[0]!.rotation.set(-Math.PI / 2, 0, 0); drillRoot.children[0]!.scale.setScalar(1.8); }
+        drill.length = 0;
+        if (tt) drill.push({ kind: 'ring', x: tt.x, y: tt.y, r: 1.5, color: '#f2c14e', pulse: true });
         if (state.t > 60) { state.done = true; }
         hud.textContent = state.done ? `Finished: ${state.score} passes found their target` : `Time ${Math.max(0, 60 - state.t).toFixed(0)}s · ${state.score} on target`;
         if (state.done) { m.teams[0].frozen = true; }
@@ -142,15 +143,15 @@ function startDrill(app: App, kind: Drill): void {
         const gates: Array<[number, number]> = [[-35, -20], [-25, 12], [-15, -14], [-5, 14], [5, -12], [15, 12], [25, -10], [35, 8]];
         if (state.t < 0.3) {
           give(m, p, -43, 0, 0); park(m, 1, 0, 33); for (const q of m.teams[0].players) if (q !== p) { q.x = q.px = -45; q.y = q.py = 33; } m.teams[0].frozen = true;
-          const cone = (x: number, y: number, c: number): Mesh => { const k = new Mesh(new CylinderGeometry(0.02, 0.28, 0.6, 12), new MeshBasicMaterial({ color: c })); k.position.set(x, 0.3, y); return k; };
-          gates.forEach(([x, y], i) => { drillRoot.add(cone(x, y - 2, i === 0 ? 0x3ddc97 : 0xf59e0b), cone(x, y + 2, i === 0 ? 0x3ddc97 : 0xf59e0b)); });
+          drill.length = 0;
+          gates.forEach(([x, y], i) => { drill.push({ kind: 'cone', x, y: y - 2, r: 0.6, color: gateColor(i, 0) }, { kind: 'cone', x, y: y + 2, r: 0.6, color: gateColor(i, 0) }); });
           state.gate = 0; state.t = 0.3;
         }
         const g = gates[state.gate];
         if (g && !state.done) {
           const b = m.ball;
-          if (Math.abs(b.x - g[0]) < 0.9 && Math.abs(b.y - g[1]) < 2) { state.gate++; toast(`Gate ${state.gate}/8`); drillRoot.children.forEach((c, i) => { (c as Mesh).material = new MeshBasicMaterial({ color: Math.floor(i / 2) === state.gate ? 0x3ddc97 : Math.floor(i / 2) < state.gate ? 0x6b7280 : 0xf59e0b }); }); }
-          for (const c of drillRoot.children) if (Math.hypot(c.position.x - b.x, c.position.z - b.y) < 0.42 && state.cooldown < 0) { state.t += 2; state.cooldown = 0.6; toast('Cone hit +2s'); }
+          if (Math.abs(b.x - g[0]) < 0.9 && Math.abs(b.y - g[1]) < 2) { state.gate++; toast(`Gate ${state.gate}/8`); drill.forEach((c, i) => { c.color = gateColor(Math.floor(i / 2), state.gate); }); }
+          for (const c of drill) if (Math.hypot(c.x - b.x, c.y - b.y) < 0.42 && state.cooldown < 0) { state.t += 2; state.cooldown = 0.6; toast('Cone hit +2s'); }
           if (state.gate >= gates.length) { state.done = true; state.best = Math.min(state.best, state.t); }
         }
         hud.textContent = state.done ? `Finished in ${state.t.toFixed(1)}s` : `Gate ${state.gate}/8 · ${state.t.toFixed(1)}s`;
@@ -172,7 +173,7 @@ function startDrill(app: App, kind: Drill): void {
 
   // bind skill events for the lab
   match.bus.on('skill', (e) => { state.lastSkill = `${skillById(e.id)?.name ?? e.id}`; if (e.success) state.skillOK++; else state.skillFail++; });
-  void keyLabel; void CircleGeometry;
+  void keyLabel;
   app.play(match, humans, (r: SessionResult) => { void app.go('training', undefined, false); void r; }, { skipIntro: true, noReplays: true, hideScoreboard: true, onTick, fullTimeTitle: 'Practice' });
   void settings;
 }

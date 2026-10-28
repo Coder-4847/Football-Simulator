@@ -20,7 +20,7 @@ test('starts a quick match, plays and pauses', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Quick match' }).click();
   await page.getByRole('button', { name: 'Kick off' }).click();
-  await expect(page.locator('canvas').first()).toBeVisible();
+  await expect(page.locator('canvas:visible').first()).toBeVisible();
   await page.waitForTimeout(1500);
   await page.keyboard.press('Space'); // skip line-up
   await page.waitForTimeout(3000);

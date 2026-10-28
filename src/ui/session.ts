@@ -230,6 +230,12 @@ export class GameSession {
   private render(alpha: number, dt: number): void {
     if (this.paused) alpha = 1;
     this.view.update(alpha, dt, this.controlled);
+    if (!this.paused) {
+      const gs = settings.value.gameplay.gameSpeed;
+      const base = gs === 'slow' ? 0.8 : gs === 'fast' ? 1.25 : 1;
+      // a few frames of hit-stop on big strikes and slides give impacts some weight
+      this.loop.timeScale = this.view.hitStop > 0 ? base * 0.12 : base;
+    }
     this.hud.update(dt, this.o.match.humans, this.paused);
     const m = this.o.match;
     if (!this.paused) audio.setExcitement(m.phase === 'play' ? Math.min(1, 0.25 + m.ball.speed() / 60 + (Math.abs(m.ball.x) > 38 ? 0.25 : 0)) : 0.2);
@@ -308,8 +314,7 @@ export class GameSession {
       h('button', { class: 'btn', onclick: (): void => this.showOverlay(modal(tacticsPanel(m, side, () => this.showPause()))) }, 'Tactics & formation'),
       h('div', { class: 'field' }, h('label', null, 'Camera'), h('select', { onchange: (e: Event): void => { const v = (e.target as HTMLSelectElement).value as 'broadcast'; this.view.setCameraMode(v); settings.update((s) => { s.gameplay.camera = v; }); } },
         CAMERA_MODES.map((c) => h('option', { value: c.id, selected: this.view.director.mode === c.id }, c.name)))),
-      h('div', { class: 'field' }, h('label', null, 'Camera height'), h('input', { type: 'range', min: 0.6, max: 1.6, step: 0.05, value: settings.value.gameplay.cameraHeight, oninput: (e: Event): void => { const v = Number((e.target as HTMLInputElement).value); this.view.director.heightScale = v; settings.update((s) => { s.gameplay.cameraHeight = v; }); } })),
-      h('div', { class: 'field' }, h('label', null, 'Camera zoom'), h('input', { type: 'range', min: 0.6, max: 1.6, step: 0.05, value: settings.value.gameplay.cameraZoom, oninput: (e: Event): void => { const v = Number((e.target as HTMLInputElement).value); this.view.director.zoomScale = v; settings.update((s) => { s.gameplay.cameraZoom = v; }); } })),
+      h('div', { class: 'field' }, h('label', null, 'Camera zoom (higher = wider view)'), h('input', { type: 'range', min: 0.6, max: 1.6, step: 0.05, value: settings.value.gameplay.cameraZoom, oninput: (e: Event): void => { const v = Number((e.target as HTMLInputElement).value); this.view.director.zoomScale = v; settings.update((s) => { s.gameplay.cameraZoom = v; }); } })),
       h('button', { class: 'btn', onclick: (): void => { if (document.fullscreenElement) void document.exitFullscreen(); else void document.documentElement.requestFullscreen?.().then(() => (screen.orientation as unknown as { lock?: (o: string) => Promise<void> }).lock?.('landscape').catch(() => undefined)).catch(() => undefined); } }, 'Fullscreen'),
       this.o.openSettings ? h('button', { class: 'btn', onclick: (): void => { const host = h('div'); this.o.openSettings!(host); this.showOverlay(modal(h('div', { class: 'col' }, host, h('button', { class: 'btn', onclick: (): void => this.showPause() }, 'Back')))); } }, 'Settings & controls') : null,
       h('button', { class: 'btn danger', onclick: (): void => { if (confirm('Quit this match? Progress will be lost.')) this.exit(true); } }, 'Quit match'));

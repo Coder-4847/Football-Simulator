@@ -3,7 +3,7 @@
 ## Code dependencies
 | Package | Licence |
 |---|---|
-| [three](https://github.com/mrdoob/three.js) (incl. `examples/jsm` addons: Sky, EffectComposer, UnrealBloomPass, SMAAPass, OutputPass, AfterimagePass, BufferGeometryUtils) | MIT |
+| _None at runtime._ The renderer is plain Canvas 2D; there are no runtime dependencies. | — |
 | Vite, Vitest, TypeScript, @playwright/test (dev only) | MIT / Apache-2.0 |
 
 ## Assets

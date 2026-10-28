@@ -1,28 +1,18 @@
-import {
-  ACESFilmicToneMapping, AmbientLight, BufferAttribute, BufferGeometry, CanvasTexture, CircleGeometry, Color, ConeGeometry, DirectionalLight, Group, HemisphereLight, Line, LineBasicMaterial,
-  Mesh, MeshBasicMaterial, MeshStandardMaterial, PCFSoftShadowMap, PMREMGenerator, PerspectiveCamera, Quaternion, RingGeometry, Scene, SphereGeometry, SRGBColorSpace,
-  Vector3, WebGLRenderer, PCFShadowMap, BasicShadowMap, BoxGeometry, PlaneGeometry, type Texture,
-} from 'three';
-import { Sky } from 'three/examples/jsm/objects/Sky.js';
-import { angleDiff } from '../core/math';
-import { buildHumanoid, createCanvas, type Rig } from '../animation/rig';
-import { applyPose, PoseState, type PoseInput } from '../animation/pose';
-import { buildCornerFlags, buildGround, GoalView, makePitchTexture, paintWear, type PitchTextures } from './pitch';
-import { buildStadium, type StadiumView } from './stadium';
-import { CameraDirector, type CameraMode } from './camera';
-import { PostStack, type GradePreset } from './post';
-import { WeatherFx } from './weather';
-import { GrassBlades } from './grass';
-import { shirtTexture } from './kits';
+import { angleDiff, clamp, clamp01, lerp } from '../core/math';
 import { settings } from '../core/settings';
-import { qualityFor, type Quality } from './quality';
+import { HALF_GOAL, HALF_L, HALF_W } from '../match/constants';
+import type { MPlayer, PState } from '../match/entities';
 import type { Match } from '../match/match';
-import type { MPlayer, Team } from '../match/entities';
+import { ANIM_LIST as ANIMS, FRAME_SIZE, PF, sampleFrames, stateFromCode } from '../match/replay';
 import { skillById } from '../match/skills';
-import { HALF_L } from '../match/constants';
-import { ANIM_LIST as ANIMS, FRAME_SIZE, PF, stateFromCode, sampleFrames } from '../match/replay';
-import type { PState } from '../match/entities';
 import type { TimeOfDay, Weather } from '../match/types';
+import { CameraDirector, type CameraMode, type Cinematic } from './camera';
+import { LightingLayer, Particles, WeatherLayer, vignette } from './fx';
+import { PitchRenderer } from './pitch';
+import { FigurePainter, BOOT_COLORS, HAIR_COLORS, PlayerAnim, SKIN_TONES, pushTrail, type BallLocal, type PlayerStyle, type RenderPlayer } from './players';
+import { GRADES, gradeFilter, type GradePreset } from './post';
+import type { Quality } from './quality';
+import { buildStadium, drawBoards, drawCrowd, drawRoofs, drawStadiumGround, type StadiumView } from './stadium';
 
 export interface ViewOptions {
   quality: Quality;
@@ -36,364 +26,190 @@ export interface ViewOptions {
   trail: boolean;
 }
 
-interface RenderPlayer {
-  visible: boolean; x: number; z: number; face: number;
-  state: string; stateName: string; stateT: number; stateDur: number; speed: number; stride: number;
-  hasBall: boolean; ballSide: 'L' | 'R'; dominantFoot: 'L' | 'R'; weakFoot: number; tired: number; keeper: boolean;
-  skillAnim: string | null; skillU: number; skillSide: number; diveSide: number; diveH: number; celebT: number; kickPower: number;
+/** Marker drawn on the pitch by training drills. */
+export interface DrillMarker { kind: 'ring' | 'cone' | 'zone'; x: number; y: number; r?: number; color: string; label?: string; pulse?: boolean }
+
+interface PlayerView {
+  anim: PlayerAnim; painter: FigurePainter; style: PlayerStyle; rp: RenderPlayer | null;
+  sx: number; sy: number; slideT: number; lastState: PState; lastStride: number;
 }
 
-class PlayerView {
-  ps = new PoseState();
-  lastFace = 0; lastSpeed = 0; turn = 0; accel = 0;
-  seed = Math.random() * 10;
-  celeb: number;
-  shadow: Mesh | null = null;
-  frame = 0;
-  stride = 0;
-  constructor(public rig: Rig, public readonly player: MPlayer | null, public role: 'player' | 'referee' | 'assistant' | 'bench' | 'crew' = 'player') {
-    this.celeb = player ? (settings.value.gameplay.celebrations[player.data.id] ?? Math.abs(hash(player.data.id)) % 6) : 0;
-  }
-}
+interface Popup { x: number; y: number; t: number; text: string; color: string; size: number }
 
 function hash(s: string): number { let h = 0; for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) | 0; return h; }
 
-function ballTexture(): CanvasTexture {
-  const c = createCanvas(256, 128); const g = c.getContext('2d')!;
-  g.fillStyle = '#f4f4f2'; g.fillRect(0, 0, 256, 128);
-  g.fillStyle = '#1b1b1f';
-  const pent = (x: number, y: number, r: number): void => { g.beginPath(); for (let i = 0; i < 5; i++) { const a = (i / 5) * Math.PI * 2 - Math.PI / 2; const px = x + Math.cos(a) * r, py = y + Math.sin(a) * r; if (i === 0) g.moveTo(px, py); else g.lineTo(px, py); } g.closePath(); g.fill(); };
-  for (let i = 0; i < 6; i++) pent(i * 43 + 20, 32, 11);
-  for (let i = 0; i < 6; i++) pent(i * 43 + 41, 96, 11);
-  pent(128, 64, 9); pent(0, 64, 9); pent(256, 64, 9);
-  const t = new CanvasTexture(c); t.colorSpace = SRGBColorSpace; t.anisotropy = 4;
-  return t;
-}
+const PHI = (1 + Math.sqrt(5)) / 2;
+const ICO: Array<[number, number, number]> = (() => {
+  const v: Array<[number, number, number]> = [];
+  for (const a of [-1, 1]) for (const b of [-PHI, PHI]) { v.push([0, a, b], [a, b, 0], [b, 0, a]); }
+  return v.map(([x, y, z]) => { const l = Math.hypot(x, y, z); return [x / l, y / l, z / l] as [number, number, number]; });
+})();
 
-function blobTexture(): CanvasTexture {
-  const c = createCanvas(64, 64); const g = c.getContext('2d')!;
-  const gr = g.createRadialGradient(32, 32, 2, 32, 32, 30);
-  gr.addColorStop(0, 'rgba(0,0,0,0.55)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
-  g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
-  return new CanvasTexture(c);
-}
+const PLAYER_COLORS = ['#3b82f6', '#ef4444', '#22c55e', '#f59e0b'];
 
 export class MatchView {
-  readonly renderer: WebGLRenderer;
-  readonly scene = new Scene();
-  readonly director = new CameraDirector();
   readonly canvas: HTMLCanvasElement;
-  private post: PostStack;
-  private weather: WeatherFx;
-  private sun: DirectionalLight;
-  private hemi: HemisphereLight;
-  private sky: Sky | null = null;
-  private envTex: Texture | null = null;
-  private pitch: PitchTextures;
-  private ground!: Mesh;
-  private goals: GoalView[] = [];
-  private ballMesh: Mesh;
-  private ballRot = new Quaternion();
-  private trail: Line | null = null;
-  private trailPts: Vector3[] = [];
-  private stadium!: StadiumView;
+  readonly director = new CameraDirector();
+  private ctx: CanvasRenderingContext2D;
+  private pitch: PitchRenderer;
+  private stadium: StadiumView;
+  private particles = new Particles();
+  private weather = new WeatherLayer();
+  private lighting: LightingLayer;
   private views = new Map<MPlayer, PlayerView>();
-  private extras: PlayerView[] = [];
-  private refViews: PlayerView[] = [];
-  private blob = blobTexture();
-  private ballShadow: Mesh;
-  private markers = new Map<number, { ring: Mesh; arrow: Mesh }>();
-  private targetRing: Mesh;
-  private aimGroup = new Group();
-  private aimLine: Line;
-  private aimRing: Mesh;
-  private time = 0;
-  private wearT = 0;
-  private wearDirty = false;
-  private crowdExcite = 0.25;
-  private excitement = 0;
-  private tmpV = new Vector3();
-  private lastFrameTime = 0;
-  replay: { frames: Float32Array[]; idx: number; speed: number; angleT: number; angle: number; done: boolean; onDone?: () => void } | null = null;
-  private replayTmp = new Float32Array(FRAME_SIZE);
-  private fpsSmooth = 60;
-  onFrame: ((dt: number) => void) | null = null;
-  private disposeFns: Array<() => void> = [];
+  private refView: PlayerView;
+  private assistViews: PlayerView[] = [];
+  private popups: Popup[] = [];
   private quality: Quality;
   private opts: ViewOptions;
-  private weatherKind: Weather;
   private tod: TimeOfDay;
-  private homeKit: { primary: string; secondary: string };
-  private awayKit: { primary: string; secondary: string };
-  private grass: GrassBlades | null = null;
-  private offsideLine: Mesh | null = null;
-  private boardsT = 0;
-  private jumboT = 0;
+  private weatherKind: Weather;
+  private time = 0;
+  private fpsSmooth = 60;
+  private pixelRatio = 1;
+  private cssW = 1280; private cssH = 720;
+  private excitement = 0;
+  private crowdExcite = 0.25;
+  private flash = 0;
+  private boardT = 0;
+  private wearT = 0;
+  private ballVecs: Array<[number, number, number]> = ICO.map((v) => [...v] as [number, number, number]);
+  private trailPts: number[] = [];
+  private lastBall = { x: 0, y: 0, z: 0 };
+  private kickPow = new Map<MPlayer, { p: number; t: number }>();
+  private replayTmp = new Float32Array(FRAME_SIZE);
+  private benchWalk = 0;
+  private dugoutReact = 0;
+  private lastGoalSide: 0 | 1 | null = null;
+  /** seconds of hit-stop requested by strong impacts; the session slows the clock while > 0 */
+  hitStop = 0;
+  fade = 0;
+  letterbox = 0;
+  drill: DrillMarker[] = [];
+  replay: { frames: Float32Array[]; idx: number; speed: number; angleT: number; angle: number; done: boolean; onDone?: () => void } | null = null;
+  onFrame: ((dt: number) => void) | null = null;
   private frameCount = 0;
 
   constructor(canvas: HTMLCanvasElement, readonly match: Match, opts: ViewOptions) {
     this.canvas = canvas;
+    this.ctx = canvas.getContext('2d', { alpha: false })!;
     this.opts = opts;
     this.quality = opts.quality;
-    this.weatherKind = match.cfg.weather;
     this.tod = match.cfg.timeOfDay;
-    this.homeKit = match.teams[0].kit; this.awayKit = match.teams[1].kit;
-    this.renderer = new WebGLRenderer({ canvas, antialias: opts.quality.antialias === 'msaa', powerPreference: 'high-performance', alpha: false });
-    this.renderer.outputColorSpace = SRGBColorSpace;
-    this.renderer.toneMapping = ACESFilmicToneMapping;
-    this.renderer.shadowMap.type = PCFSoftShadowMap;
-    this.scene.background = new Color('#9db6d4');
-    this.post = new PostStack(this.renderer, this.scene, this.director.camera);
-    this.weather = new WeatherFx(this.scene);
-
-    this.pitch = makePitchTexture(opts.quality.pitchTexture, match.cfg.weather === 'snow', match.cfg.weather === 'rain');
-    this.sun = new DirectionalLight(0xffffff, 3);
-    this.sun.castShadow = true;
-    this.scene.add(this.sun, this.sun.target);
-    this.hemi = new HemisphereLight(0xbfd8ff, 0x3c5a2a, 0.7);
-    this.scene.add(this.hemi, new AmbientLight(0xffffff, 0.05));
-
-    this.buildWorld();
-
-    // ball
-    this.ballMesh = new Mesh(new SphereGeometry(0.11, 24, 16), new MeshStandardMaterial({ map: ballTexture(), roughness: 0.42, metalness: 0.02 }));
-    this.ballMesh.castShadow = true;
-    this.scene.add(this.ballMesh);
-    this.ballShadow = new Mesh(new CircleGeometry(0.25, 16), new MeshBasicMaterial({ map: this.blob, transparent: true, depthWrite: false }));
-    this.ballShadow.rotation.x = -Math.PI / 2; this.scene.add(this.ballShadow);
-
-    // markers
-    this.targetRing = new Mesh(new RingGeometry(0.62, 0.72, 32), new MeshBasicMaterial({ color: 0xb8c4d4, transparent: true, opacity: 0.22, depthWrite: false }));
-    this.targetRing.rotation.x = -Math.PI / 2; this.targetRing.visible = false; this.scene.add(this.targetRing);
-    const lg = new BufferGeometry(); lg.setAttribute('position', new BufferAttribute(new Float32Array(6), 3));
-    this.aimLine = new Line(lg, new LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8 }));
-    this.aimRing = new Mesh(new RingGeometry(0.28, 0.38, 24), new MeshBasicMaterial({ color: 0xffffff, side: 2, transparent: true, opacity: 0.9, depthTest: false }));
-    this.aimGroup.add(this.aimLine, this.aimRing); this.aimGroup.visible = false; this.aimLine.frustumCulled = false;
-    this.scene.add(this.aimGroup);
-
-    this.director.heightScale = opts.cameraHeight; this.director.zoomScale = opts.cameraZoom; this.director.setMode(opts.cameraMode);
-    this.setQuality(opts.quality);
+    this.weatherKind = match.cfg.weather;
+    this.pitch = new PitchRenderer(match.cfg.stadiumStyle, this.weatherKind === 'rain', this.weatherKind === 'snow', opts.quality.pitchWear, match.cfg.seed, hash(match.cfg.seed) & 3);
+    this.pitch.detail = clamp(opts.quality.stadiumDetail * 1.3, 11, 22);
+    this.stadium = buildStadium(match.cfg.stadiumStyle, { night: this.tod === 'night', crowd: opts.quality.crowd, detail: opts.quality.stadiumDetail, home: match.teams[0].kit, away: match.teams[1].kit, seed: match.cfg.seed });
+    this.lighting = new LightingLayer(this.tod);
+    this.particles.density = opts.quality.particles;
+    this.weather.set(this.weatherKind, opts.quality.weatherParticles);
+    this.director.zoomScale = opts.cameraZoom; this.director.heightScale = opts.cameraHeight; this.director.setMode(opts.cameraMode);
+    this.setGrade(opts.grade);
+    this.refView = this.makeOfficial('#e8d51a', 'referee');
+    this.assistViews = [this.makeOfficial('#fb923c', 'assistant'), this.makeOfficial('#fb923c', 'assistant')];
     this.hookEvents();
     this.resize();
+    this.director.snap(0, 0);
   }
 
-  // ---------- world construction ----------
+  // ---------------------------------------------------------------- setup
 
-  private buildWorld(): void {
-    const m = this.match;
-    const wet = this.weatherKind === 'rain';
-    this.ground = buildGround(this.pitch, wet);
-    this.scene.add(this.ground);
-    this.goals = [new GoalView(1, this.quality.netPhysics), new GoalView(-1, this.quality.netPhysics)];
-    for (const g of this.goals) this.scene.add(g.group);
-    this.scene.add(buildCornerFlags());
-    const night = this.tod === 'night';
-    this.stadium = buildStadium(m.cfg.stadiumStyle, {
-      crowd: this.quality.crowd, home: this.homeKit, away: this.awayKit, night, seed: m.cfg.seed,
-      capacity: 40000,
-    });
-    this.scene.add(this.stadium.group);
-    this.applyEnvironment();
-    this.buildOfficials();
+  private makeOfficial(color: string, role: 'referee' | 'assistant'): PlayerView {
+    return {
+      anim: new PlayerAnim(), painter: new FigurePainter(), rp: null, sx: 0, sy: 0, slideT: 0, lastState: 'normal', lastStride: 0,
+      style: { primary: color, secondary: '#111827', shorts: '#0f172a', socks: '#111827', pattern: 'solid', keeper: false, skin: SKIN_TONES[1]!, hair: HAIR_COLORS[0]!, hairStyle: 1, beard: 0, boot: '#111827', longSleeves: false, gloves: null, number: 0, build: 1, celeb: 0, role },
+    };
   }
 
-  private exposure = 0.7;
-  private applyEnvironment(): void {
-    const tod = this.tod, kind = this.weatherKind;
-    const night = tod === 'night';
-    // sun position
-    const elev = tod === 'day' ? 52 : tod === 'dusk' ? 6.5 : 28;
-    const az = tod === 'dusk' ? 250 : 130;
-    const phi = ((90 - elev) * Math.PI) / 180, theta = (az * Math.PI) / 180;
-    const sunDir = new Vector3().setFromSphericalCoords(1, phi, theta);
-    this.sunDir = sunDir;
-    this.sun.color.set(tod === 'dusk' ? '#ffb070' : night ? '#9fb7ff' : '#fff6e8');
-    this.sun.intensity = night ? 0.28 : tod === 'dusk' ? 1.6 : kind === 'clear' ? 2.3 : 1.3;
-    this.hemi.intensity = night ? 0.25 : tod === 'dusk' ? 0.35 : kind === 'clear' ? 0.42 : 0.6;
-    this.hemi.color.set(night ? '#2a3a66' : tod === 'dusk' ? '#ff9a6e' : '#bfd8ff');
-    this.hemi.groundColor.set(night ? '#0b1410' : '#3c5a2a');
-    this.exposure = night ? 1.0 : tod === 'dusk' ? 0.8 : 0.66;
-    this.renderer.toneMappingExposure = this.exposure;
-    // sky
-    if (this.sky) { this.scene.remove(this.sky); this.sky.geometry.dispose(); this.sky = null; }
-    if (!night) {
-      const sky = new Sky(); sky.scale.setScalar(3500);
-      const u = sky.material.uniforms as Record<string, { value: number | Vector3 }>;
-      u.turbidity!.value = kind === 'clear' ? 4 : 12; u.rayleigh!.value = tod === 'dusk' ? 2.5 : 1.4; u.mieCoefficient!.value = 0.005; u.mieDirectionalG!.value = 0.8;
-      (u.sunPosition!.value as Vector3).copy(sunDir);
-      this.sky = sky; this.scene.add(sky);
-      if (kind === 'rain' || kind === 'fog' || kind === 'snow') this.scene.background = new Color(kind === 'snow' ? '#c9d3dc' : '#7d8791');
-      // environment map for PBR reflections
-      const pm = new PMREMGenerator(this.renderer);
-      const envScene = new Scene(); const es = new Sky(); es.scale.setScalar(100);
-      const eu = es.material.uniforms as Record<string, { value: number | Vector3 }>;
-      eu.turbidity!.value = u.turbidity!.value; eu.rayleigh!.value = u.rayleigh!.value; eu.mieCoefficient!.value = 0.005; eu.mieDirectionalG!.value = 0.8; (eu.sunPosition!.value as Vector3).copy(sunDir);
-      envScene.add(es);
-      this.envTex?.dispose();
-      const rt = pm.fromScene(envScene, 0, 0.1, 500);
-      this.envTex = rt.texture; this.scene.environment = this.envTex; this.scene.environmentIntensity = kind === 'clear' ? 0.16 : 0.12;
-      pm.dispose();
-    } else {
-      this.scene.background = new Color('#05080f');
-      this.scene.environment = null;
-      this.addStars();
-    }
-    // floodlights
-    const flood = night ? 4200 : tod === 'dusk' ? 1800 : 0;
-    for (const l of this.stadium.lights) { l.intensity = flood; l.angle = 0.78; l.penumbra = 0.6; l.decay = 2; }
-    for (const m of this.stadium.floodMeshes) (m.material as MeshBasicMaterial).color.set(flood > 0 ? '#d9d2bd' : '#8a9098');
-    this.weather.set(kind, this.quality.weatherParticles, night);
-    if (kind === 'rain') { (this.ground.material as MeshStandardMaterial).roughness = 0.6; }
-  }
-  private sunDir = new Vector3(0.5, 1, 0.3);
-  private stars: Group | null = null;
-  private addStars(): void {
-    if (this.stars) return;
-    const g = new BufferGeometry(); const n = 700; const arr = new Float32Array(n * 3);
-    for (let i = 0; i < n; i++) { const th = Math.random() * Math.PI * 2, ph = Math.acos(Math.random() * 0.9 + 0.1); arr[i * 3] = Math.sin(ph) * Math.cos(th) * 1800; arr[i * 3 + 1] = Math.cos(ph) * 1800; arr[i * 3 + 2] = Math.sin(ph) * Math.sin(th) * 1800; }
-    g.setAttribute('position', new BufferAttribute(arr, 3));
-    const pts = new (class extends Group {})(); // placeholder group
-    this.stars = pts;
-    const mat = new MeshBasicMaterial({ color: 0xffffff });
-    void mat;
-    this.scene.add(pts);
-    import('three').then(({ Points, PointsMaterial }) => { const p = new Points(g, new PointsMaterial({ color: 0xffffff, size: 2.2, sizeAttenuation: false, fog: false })); pts.add(p); });
+  private makeView(p: MPlayer): PlayerView {
+    const t = p.team;
+    const k = p.isGK();
+    const look = p.data.look;
+    const kit = k ? { primary: t.gkKit.primary, secondary: t.gkKit.secondary, shorts: t.gkKit.secondary, socks: t.gkKit.primary, pattern: 'solid' } : t.kit;
+    const style: PlayerStyle = {
+      primary: kit.primary, secondary: kit.secondary, shorts: kit.shorts, socks: kit.socks, pattern: kit.pattern, keeper: k,
+      skin: SKIN_TONES[look.skin % SKIN_TONES.length]!, hair: HAIR_COLORS[look.hairColor % HAIR_COLORS.length]!, hairStyle: look.hairStyle, beard: look.beard,
+      boot: k ? '#0f172a' : BOOT_COLORS[look.bootColor % BOOT_COLORS.length]!, longSleeves: look.sleeves || k, gloves: k ? '#e5e7eb' : null,
+      number: p.data.number, build: clamp(p.data.heightCm / 180, 0.92, 1.08), celeb: settings.value.gameplay.celebrations[p.data.id] ?? Math.abs(hash(p.data.id)) % 6, role: 'player',
+    };
+    const anim = new PlayerAnim();
+    anim.seed = (Math.abs(hash(p.data.id)) % 1000) / 10;
+    anim.prevFace = p.face;
+    return { anim, painter: new FigurePainter(), style, rp: null, sx: 0, sy: 0, slideT: 0, lastState: 'normal', lastStride: 0 };
   }
 
-  private makeRig(p: MPlayer, team: Team): Rig {
-    const keeper = p.isGK();
-    const kit = keeper ? { primary: team.gkKit.primary, secondary: team.gkKit.secondary, pattern: 'solid' } : team.kit;
-    return buildHumanoid({
-      look: p.data.look, bodyType: p.data.bodyType, heightCm: p.data.heightCm, shirt: shirtTexture(kit),
-      shorts: keeper ? team.gkKit.secondary : team.kit.shorts, socks: keeper ? team.gkKit.primary : team.kit.socks, isKeeper: keeper,
-      gloves: keeper ? '#e5e7eb' : undefined, shirtColor: kit.primary, longSleeves: p.data.look.sleeves || keeper, number: p.data.number, name: p.data.shortName,
-    });
-  }
-
-  private buildOfficials(): void {
-    const mk = (shirt: string, shorts: string, h: number, num: number): Rig => buildHumanoid({
-      look: { skin: 1, hairStyle: 1, hairColor: 0, beard: 0, bootColor: 0, tattoo: false, sleeves: false }, bodyType: 'normal', heightCm: h,
-      shirt: shirtTexture({ primary: shirt, secondary: shirt, pattern: 'solid' }), shorts, socks: '#111827', isKeeper: false, shirtColor: shirt, longSleeves: false, number: num, name: '',
-    });
-    const ref = mk('#e8d51a', '#111827', 180, 0); ref.numberPlane.visible = false;
-    this.scene.add(ref.root); this.refViews.push(new PlayerView(ref, null, 'referee'));
-    for (let i = 0; i < 2; i++) { const a = mk('#fb923c', '#111827', 178, 0); a.numberPlane.visible = false; this.scene.add(a.root); this.refViews.push(new PlayerView(a, null, 'assistant')); }
-    // benches: substitutes sit in the dugouts, coaches stand; ball boys and camera crew stand behind the boards
-    if (this.quality.crowd > 0.3) {
-      const addSeated = (team: Team, x0: number): void => {
-        team.bench.slice(0, 7).forEach((pl, i) => {
-          const rig = buildHumanoid({
-            look: pl.look, bodyType: pl.bodyType, heightCm: pl.heightCm, shirt: shirtTexture({ primary: team.kit.secondary, secondary: team.kit.primary, pattern: 'solid' }),
-            shorts: team.kit.shorts, socks: team.kit.socks, isKeeper: false, shirtColor: team.kit.secondary, longSleeves: true, number: pl.number, name: pl.shortName,
-          });
-          rig.root.position.set(x0 + i * 1.0, 0.0, 42.6 - 5.4); rig.root.rotation.y = Math.PI;
-          this.scene.add(rig.root);
-          const pv = new PlayerView(rig, null, 'bench'); pv.seed = i * 1.7; this.extras.push(pv);
-        });
-      };
-      addSeated(this.match.teams[0], -9); addSeated(this.match.teams[1], 3);
-      for (const cx of [-5.5, 6.5]) {
-        const glass = new Mesh(new BoxGeometry(8.4, 2.1, 0.12), new MeshStandardMaterial({ color: '#9fb4c8', transparent: true, opacity: 0.22, roughness: 0.1 }));
-        glass.position.set(cx, 1.15, 38.3); const roof = new Mesh(new BoxGeometry(8.6, 0.12, 2.2), new MeshStandardMaterial({ color: '#cbd5e1', transparent: true, opacity: 0.55 }));
-        roof.position.set(cx, 2.25, 37.3); const bench = new Mesh(new BoxGeometry(8, 0.1, 0.5), new MeshStandardMaterial({ color: '#374151' })); bench.position.set(cx, 0.45, 37.5);
-        this.scene.add(glass, roof, bench);
+  private hookEvents(): void {
+    const bus = this.match.bus;
+    bus.on('kick', (e) => {
+      const b = this.match.ball;
+      this.kickPow.set(e.player, { p: e.power, t: this.time });
+      const strong = e.kind === 'shot' || e.power > 0.55;
+      if (strong) {
+        this.particles.ring(b.x, b.y, 0.5 + e.power * 0.6, 'rgba(255,255,255,0.9)');
+        this.particles.turf(b.x, b.y, Math.cos(e.player.face), Math.sin(e.player.face), Math.round(3 + e.power * 8));
+        this.particles.streak(b.x, b.y, Math.cos(e.player.face) * 8, Math.sin(e.player.face) * 8, 1.5);
       }
-      for (let i = 0; i < 6; i++) {
-        const side = i < 3 ? 1 : -1;
-        const rig = mk(i % 2 ? '#f97316' : '#22c55e', '#111827', 165, 0); rig.numberPlane.visible = false;
-        const pos = [[-HALF_L - 4, 20], [HALF_L + 4, -20], [-30, 38.5], [30, -38.5], [HALF_L + 4, 22], [-HALF_L - 4, -22]][i]!;
-        rig.root.position.set(pos[0]!, 0, pos[1]!); rig.root.rotation.y = side > 0 ? Math.PI : 0; this.scene.add(rig.root);
-        const pv = new PlayerView(rig, null, 'crew'); pv.seed = i; this.extras.push(pv);
-      }
-      for (let i = 0; i < 4; i++) {
-        const rig = mk('#1f2937', '#111827', 175, 0); rig.numberPlane.visible = false;
-        const x = [-HALF_L - 6.5, HALF_L + 6.5, -HALF_L - 6.5, HALF_L + 6.5][i]!, z = [-6, 6, 7, -7][i]!;
-        rig.root.position.set(x, 0, z); rig.root.rotation.y = x < 0 ? Math.PI / 2 : -Math.PI / 2; this.scene.add(rig.root);
-        const pv = new PlayerView(rig, null, 'crew'); pv.seed = i + 9; this.extras.push(pv);
-      }
-    }
+      if (e.kind === 'shot' && e.power > 0.5) { this.director.punch(0.02 + e.power * 0.03); this.director.addShake(0.2 + e.power * 0.4); if (e.power > 0.78) this.hitStop = Math.max(this.hitStop, 0.05); }
+    });
+    bus.on('shot', (e) => { if (e.xg > 0.2) this.excitement = Math.max(this.excitement, 0.55); });
+    bus.on('post', (e) => { const b = this.match.ball; this.particles.sparks(b.x, b.y, 10, '#ffffff'); this.director.addShake(0.5); this.excitement = Math.max(this.excitement, 0.7); void e; });
+    bus.on('netHit', (e) => { const b = this.match.ball; this.pitch.addNetImpulse(b.x > 0 ? 1 : -1, b.x, b.y, e.speed); this.particles.sparks(b.x, b.y, 6, '#e8f0ff'); });
+    bus.on('save', (e) => { const b = this.match.ball; this.particles.ring(b.x, b.y, 0.7, 'rgba(120,200,255,0.9)'); this.director.addShake(0.15); void e; });
+    bus.on('bounce', (e) => { if (e.speed > 4) { const b = this.match.ball; this.particles.dust(b.x, b.y, Math.min(5, Math.round(e.speed / 3)), 0.8); } });
+    bus.on('tackle', (e) => {
+      const v = e.victim;
+      this.particles.dust(v.x, v.y, e.slide ? 8 : 4, 1.6);
+      if (e.success) this.particles.turf(v.x, v.y, v.vx, v.vy, 6);
+      this.director.addShake(e.slide ? 0.3 : 0.18);
+      if (e.slide) this.hitStop = Math.max(this.hitStop, 0.035);
+    });
+    bus.on('header', (e) => { this.particles.ring(e.player.x, e.player.y, 0.5, 'rgba(255,255,255,0.8)', 0.3); });
+    bus.on('skill', (e) => {
+      const mv = skillById(e.id);
+      const p = e.player;
+      this.popups.push({ x: p.x, y: p.y - 1.8, t: 0, text: `${'★'.repeat(mv?.stars ?? 1)} ${mv?.name ?? ''}`.trim(), color: e.success ? '#ffd23f' : '#ff6b6b', size: 0.62 });
+      if (e.success) this.particles.sparks(p.x, p.y, 5, '#ffd23f');
+    });
+    bus.on('goal', (e) => {
+      this.excitement = 1; this.flash = 1;
+      this.lastGoalSide = e.side;
+      this.director.addShake(0.8); this.director.punch(0.08);
+      const t = this.match.teams[e.side];
+      const x = e.scorer.x, y = e.scorer.y;
+      this.particles.confetti(x, y, 90, [t.kit.primary, t.kit.secondary, '#ffffff', '#ffd23f']);
+      this.particles.sparks(x, y, 24, '#ffd23f');
+      this.popups.push({ x, y: y - 2.4, t: 0, text: 'GOAL!', color: '#ffffff', size: 1.1 });
+      this.dugoutReact = 3;
+    });
+    bus.on('foul', (e) => { this.particles.dust(e.x, e.y, 3, 0.8); });
+    bus.on('whistle', (e) => { if (e.kind === 'start') this.excitement = Math.max(this.excitement, 0.4); });
   }
 
-  // ---------- quality ----------
-
-  setQuality(q: Quality): void {
-    this.quality = q;
-    const dpr = Math.min(window.devicePixelRatio || 1, q.maxPixelRatio) * q.resolutionScale;
-    this.renderer.setPixelRatio(dpr);
-    this.renderer.shadowMap.enabled = q.shadows !== 'off';
-    this.renderer.shadowMap.type = q.shadows === 'high' ? PCFSoftShadowMap : q.shadows === 'medium' ? PCFShadowMap : BasicShadowMap;
-    this.sun.castShadow = q.shadows !== 'off';
-    if (this.sun.shadow.map) { this.sun.shadow.map.dispose(); this.sun.shadow.map = null as never; }
-    this.sun.shadow.mapSize.set(q.shadowMapSize, q.shadowMapSize);
-    const S = q.shadows === 'high' ? 38 : q.shadows === 'medium' ? 44 : 52;
-    const sc = this.sun.shadow.camera;
-    sc.left = -S; sc.right = S; sc.top = S; sc.bottom = -S; sc.near = 10; sc.far = 330; sc.updateProjectionMatrix();
-    this.sun.shadow.bias = -0.0004; this.sun.shadow.normalBias = 0.04;
-    for (const pv of this.views.values()) { pv.rig.body.castShadow = q.shadows !== 'off'; pv.rig.shirtMesh.castShadow = q.shadows !== 'off'; }
-    this.post.apply(q, this.opts.grade);
-    this.renderer.toneMappingExposure = this.exposure;
-    this.resize();
-    this.director.camera.far = 4000;
-    this.weather.set(this.weatherKind, q.weatherParticles, this.tod === 'night');
-    this.ground.visible = true;
-    this.grass?.dispose(); if (this.grass) this.scene.remove(this.grass.mesh); this.grass = null;
-    if (q.grassBlades > 0) { this.grass = new GrassBlades(q.grassBlades, this.weatherKind === 'snow' ? '#dfe8ee' : '#3f8a38'); this.scene.add(this.grass.mesh); }
-    const tex = this.pitch.texture; tex.anisotropy = q.anisotropy; tex.needsUpdate = true;
-    this.ballShadow.visible = q.shadows === 'off';
-    for (const pv of this.views.values()) if (pv.shadow) pv.shadow.visible = q.shadows === 'off';
-  }
-
-  setGrade(g: GradePreset): void { this.opts.grade = g; this.post.setGrade(g); }
+  setQuality(q: Quality): void { this.quality = q; this.particles.density = q.particles; this.weather.set(this.weatherKind, q.weatherParticles); this.resize(); }
+  setGrade(g: GradePreset): void { this.opts.grade = g; this.canvas.style.filter = gradeFilter(g); }
   setCameraMode(m: CameraMode): void { this.director.setMode(m); this.opts.cameraMode = m; }
 
   resize(): void {
     const parent = this.canvas.parentElement;
-    const w = parent ? parent.clientWidth : window.innerWidth, h = parent ? parent.clientHeight : window.innerHeight;
-    this.renderer.setSize(w, h, false);
-    this.canvas.style.width = '100%'; this.canvas.style.height = '100%';
-    this.director.camera.aspect = w / Math.max(1, h);
-    this.director.camera.updateProjectionMatrix();
-    this.post.resize(w, h);
+    const w = Math.max(2, parent?.clientWidth || window.innerWidth), h = Math.max(2, parent?.clientHeight || window.innerHeight);
+    this.cssW = w; this.cssH = h;
+    this.pixelRatio = Math.min(window.devicePixelRatio || 1, this.quality.maxPixelRatio) * this.quality.resolutionScale;
+    this.canvas.width = Math.round(w * this.pixelRatio); this.canvas.height = Math.round(h * this.pixelRatio);
+    this.canvas.style.width = `${w}px`; this.canvas.style.height = `${h}px`; this.canvas.style.display = 'block';
+    this.director.setView(w, h);
   }
 
-  // ---------- events ----------
+  get fps(): number { return this.fpsSmooth; }
 
-  private hookEvents(): void {
-    const m = this.match;
-    const bus = m.bus;
-    this.disposeFns.push(
-      bus.on('netHit', (e) => {
-        const gi = m.ball.x > 0 ? 0 : 1;
-        this.goals[gi]?.impulse(new Vector3(m.ball.x, m.ball.z, m.ball.y), e.speed);
-        this.director.addShake(Math.min(0.5, e.speed * 0.012));
-      }),
-      bus.on('goal', () => { this.excitement = 1; }),
-      bus.on('shot', (e) => { this.excitement = Math.max(this.excitement, e.xg > 0.2 ? 0.7 : 0.35); }),
-      bus.on('post', () => { this.excitement = Math.max(this.excitement, 0.75); this.director.addShake(0.2); }),
-      bus.on('save', () => { this.excitement = Math.max(this.excitement, 0.5); }),
-      bus.on('tackle', (e) => { if (e.slide) this.bumpDirt(e.player, 0.1); this.excitement = Math.max(this.excitement, 0.25); }),
-      bus.on('foul', (e) => { this.bumpDirt(e.victim, 0.06); }),
-      bus.on('card', (e) => { const rv = this.refViews[0]; if (rv) { rv.ps.cur[0] = 0; (rv as PlayerView & { cardT?: number }).cardT = 1.6; } void e; }),
-      bus.on('offside', () => { /* flag raised via match.flagT */ }),
-    );
+  /** World point (metres) → CSS pixels relative to the canvas; `h` lifts the point (metres above ground). */
+  project(x: number, y: number, h = 0): { x: number; y: number; visible: boolean } {
+    const d = this.director;
+    const sx = d.toScreenX(x), sy = d.toScreenY(y) - h * d.scale * 0.5;
+    return { x: sx, y: sy, visible: sx > -40 && sx < this.cssW + 40 && sy > -40 && sy < this.cssH + 40 };
   }
 
-  private bumpDirt(p: MPlayer, d: number): void {
-    const v = this.views.get(p);
-    if (v) v.rig.dirt.value = Math.min(1, v.rig.dirt.value + d);
-  }
+  // ---------------------------------------------------------------- replay / cinematics
 
-  // ---------- projection helper for the HUD ----------
-
-  project(x: number, y: number, z: number): { x: number; y: number; visible: boolean } {
-    this.tmpV.set(x, z, y).project(this.director.camera);
-    const w = this.canvas.clientWidth, h = this.canvas.clientHeight;
-    return { x: (this.tmpV.x * 0.5 + 0.5) * w, y: (-this.tmpV.y * 0.5 + 0.5) * h, visible: this.tmpV.z > -1 && this.tmpV.z < 1 };
-  }
-
-  // ---------- frame ----------
-
-  /** Starts a replay; `done` is called after the last frame. */
   startReplay(frames: Float32Array[], speed = 0.6, done?: () => void): void {
     this.replay = { frames, idx: 0, speed, angleT: 0, angle: 0, done: false, onDone: done };
     this.director.cinematic = { kind: 'replay', t: 0, duration: frames.length / 60, angle: 0 };
@@ -403,138 +219,89 @@ export class MatchView {
     this.replay = null; this.director.cinematic = null;
     r?.onDone?.();
   }
+  setCinematic(kind: Cinematic['kind'] | null): void { this.director.cinematic = kind ? { kind, t: 0, duration: 99 } : null; }
 
-  setCinematic(kind: 'goal' | 'halftime' | 'fulltime' | 'lineup' | 'tunnel' | null): void {
-    this.director.cinematic = kind ? { kind, t: 0, duration: 99 } : null;
-  }
+  // ---------------------------------------------------------------- frame
 
   update(alpha: number, dt: number, controlled: MPlayer | null): void {
-    this.time += dt;
-    this.frameCount++;
-    const m = this.match;
-    const q = this.quality;
+    dt = Math.max(0, Math.min(dt, 0.1));
+    this.time += dt; this.frameCount++;
     if (dt > 0) this.fpsSmooth += (1 / dt - this.fpsSmooth) * 0.05;
-    // replay clock
+    const m = this.match;
     const rep = this.replay;
     if (rep) {
-      rep.idx += dt * 60 * rep.speed;
-      rep.angleT += dt;
-      if (rep.angleT > 2.8) { rep.angleT = 0; rep.angle++; if (this.director.cinematic) this.director.cinematic.angle = rep.angle; }
-      if (rep.idx >= rep.frames.length - 1) { this.stopReplay(); }
+      rep.idx += dt * 60 * rep.speed; rep.angleT += dt;
+      if (rep.angleT > 2.6) { rep.angleT = 0; rep.angle++; if (this.director.cinematic) this.director.cinematic.angle = rep.angle; }
+      if (rep.idx >= rep.frames.length - 1) this.stopReplay();
     }
     if (this.director.cinematic) this.director.cinematic.t += dt;
 
-    // ---- ball
-    let bx: number, by: number, bz: number, bwx = m.ball.wx, bwy = m.ball.wy, bwz = m.ball.wz;
+    // ---- gather state (live interpolation or replay sample)
     const rf = this.replay ? this.sampleReplay() : null;
+    const b = m.ball;
+    let bx: number, by: number, bz: number, bwx = b.wx, bwy = b.wy, bwz = b.wz;
     if (rf) { bx = rf[0]!; by = rf[1]!; bz = rf[2]!; bwx = rf[3]!; bwy = rf[4]!; bwz = rf[5]!; }
-    else {
-      const b = m.ball;
-      bx = b.px + (b.x - b.px) * alpha; by = b.py + (b.y - b.py) * alpha; bz = b.pz + (b.z - b.pz) * alpha;
+    else { bx = b.px + (b.x - b.px) * alpha; by = b.py + (b.y - b.py) * alpha; bz = b.pz + (b.z - b.pz) * alpha; }
+
+    const players: Array<{ pv: PlayerView; rp: RenderPlayer; p: MPlayer }> = [];
+    for (const team of m.teams) {
+      for (let i = 0; i < team.players.length; i++) {
+        const p = team.players[i]!;
+        let pv = this.views.get(p);
+        if (!pv) { pv = this.makeView(p); this.views.set(p, pv); }
+        let rp: RenderPlayer;
+        if (rf && !p.subbedOff) {
+          const o = 12 + (team.side * 11 + i) * PF;
+          const st = stateFromCode(Math.round(rf[o + 3]!));
+          const extra = rf[o + 7]!;
+          const flags = rf[o + 9] ?? 0;
+          rp = {
+            visible: rf[o + 3] !== 99, x: rf[o]!, z: rf[o + 1]!, face: rf[o + 2]!, state: st, stateName: '', stateT: rf[o + 4]!,
+            stateDur: st === 'kick' ? 0.34 : st === 'slide' ? 0.95 : st === 'dive' ? 1 : st === 'tackle' ? 0.5 : st === 'jump' ? 0.7 : st === 'down' ? 1.5 : st === 'throw' ? 0.6 : 0.8,
+            speed: rf[o + 6]!, stride: rf[o + 5]!, hasBall: (flags & 1) !== 0, ballSide: (flags & 2) !== 0 ? 'R' : 'L', dominantFoot: 'R', weakFoot: 4, tired: rf[o + 10] ?? 0.2, keeper: p.isGK(),
+            skillAnim: extra >= 10 ? ANIMS[Math.round(extra) - 10] ?? 'feint' : null, skillU: Math.min(1, rf[o + 4]! / 0.7), skillSide: 1, diveSide: extra > 0 ? 1 : -1, diveH: rf[o + 8]!, celebT: this.time, kickPower: 0.6,
+          };
+        } else rp = this.livePlayer(p, alpha);
+        if (!p.subbedOff || rf) players.push({ pv, rp, p });
+        pv.rp = rp;
+      }
     }
-    this.ballMesh.position.set(bx, bz, by);
-    const w = new Vector3(-bwx, -bwz, -bwy);
-    const wl = w.length();
-    if (wl > 0.01) { const qd = new Quaternion().setFromAxisAngle(w.divideScalar(wl), Math.min(wl * dt, 1.5)); this.ballRot.premultiply(qd); this.ballMesh.quaternion.copy(this.ballRot); }
-    this.ballShadow.position.set(bx, 0.03, by); this.ballShadow.scale.setScalar(1 + bz * 0.25);
-    (this.ballShadow.material as MeshBasicMaterial).opacity = Math.max(0.15, 0.9 - bz * 0.12);
-    // trail
-    if (q.ballTrail && this.opts.trail) this.updateTrail(bx, bz, by, m.ball.speed());
-
-    // ---- players
-    this.syncPlayers(alpha, dt, rf, controlled);
-    this.syncExtras(dt);
-
-    // ---- markers
-    this.updateMarkers(alpha);
 
     // ---- camera
-    this.director.update(dt, m, alpha, controlled);
+    const fp = controlled ? { x: controlled.px + (controlled.x - controlled.px) * alpha, y: controlled.py + (controlled.y - controlled.py) * alpha } : null;
+    this.director.update(dt, m, { x: bx, y: by }, replayless(controlled, !!rf), fp);
 
-    // ---- sun/shadow follows the focus
-    const f = this.director.camera.position;
-    const fx = Math.max(-40, Math.min(40, bx)), fz = Math.max(-26, Math.min(26, by));
-    void f;
-    this.sun.position.set(fx + this.sunDir.x * 140, this.sunDir.y * 140, fz + this.sunDir.z * 140);
-    this.sun.target.position.set(fx, 0, fz); this.sun.target.updateMatrixWorld();
+    // ---- simulate fx
+    this.particles.update(dt); this.weather.update(dt); this.pitch.update(dt);
+    this.excitement = Math.max(0, this.excitement - dt * 0.2);
+    const base = m.phase === 'play' ? 0.3 : 0.22;
+    this.crowdExcite += (Math.max(base, this.excitement) - this.crowdExcite) * Math.min(1, dt * 3);
+    this.flash = Math.max(0, this.flash - dt * 1.2);
+    this.hitStop = Math.max(0, this.hitStop - dt);
+    this.dugoutReact = Math.max(0, this.dugoutReact - dt);
+    this.boardT += dt; this.benchWalk += dt;
+    for (const pp of this.popups) pp.t += dt;
+    this.popups = this.popups.filter((pp) => pp.t < 1.8);
+    this.updateBallOrientation(bwx, bwy, bwz, dt);
 
-    this.grass?.update(this.director.camera.position.x * 0.2 + bx * 0.8, this.director.camera.position.z * 0.2 + by * 0.8, dt);
-    this.updateOffsideLine(rf);
-    // ---- environment animation
-    for (const g of this.goals) g.update(dt);
-    this.excitement = Math.max(0, this.excitement - dt * 0.18);
-    const base = m.phase === 'play' ? 0.28 : 0.2;
-    const target = Math.max(base, this.excitement);
-    this.crowdExcite += (target - this.crowdExcite) * Math.min(1, dt * 3);
-    this.stadium.crowdUniform.value = this.crowdExcite;
-    this.stadium.timeUniform.value = this.time;
-    this.boardsT += dt; if (this.boardsT > 2) { this.boardsT = 0; this.stadium.boards.draw(this.time); }
-    this.jumboT += dt; if (this.jumboT > 0.5) { this.jumboT = 0; this.drawJumbotron(); }
-    this.weather.update(dt, this.director.camera.position);
-    this.wearT += dt;
-    if (this.wearT > 0.7 && !this.replay) { this.wearT = 0; this.paintWear(); }
-    if (this.wearDirty && this.frameCount % 120 === 0) { this.pitch.texture.needsUpdate = true; this.wearDirty = false; }
-
-    this.post.render(dt, this.time);
+    this.render(players, bx, by, bz, rf, dt, controlled);
     this.onFrame?.(dt);
   }
 
-  get fps(): number { return this.fpsSmooth; }
-
-  private paintWear(): void {
+  private livePlayer(p: MPlayer, alpha: number): RenderPlayer {
     const m = this.match;
-    for (const p of m.all) {
-      const s = p.speed;
-      if (s > 3 || p.isGK()) { paintWear(this.pitch, p.x, p.y, p.isGK() ? 0.6 : Math.min(1, s / 8) * 0.5); this.wearDirty = true; }
-      if (p.state === 'slide') { paintWear(this.pitch, p.x, p.y, 2); this.wearDirty = true; }
-    }
-  }
-
-  private drawJumbotron(): void {
-    const j = this.stadium.jumbotron;
-    if (!j) return;
-    const m = this.match;
-    const g = j.ctx;
-    g.fillStyle = '#05080f'; g.fillRect(0, 0, 512, 192);
-    g.fillStyle = m.teams[0].kit.primary; g.fillRect(0, 0, 8, 192);
-    g.fillStyle = m.teams[1].kit.primary; g.fillRect(504, 0, 8, 192);
-    g.fillStyle = '#f8fafc'; g.textAlign = 'center';
-    g.font = 'bold 26px system-ui, sans-serif'; g.fillText(m.teams[0].short, 110, 60); g.fillText(m.teams[1].short, 402, 60);
-    g.font = 'bold 64px system-ui, sans-serif'; g.fillText(`${m.teams[0].score} - ${m.teams[1].score}`, 256, 120);
-    g.font = '24px system-ui, sans-serif'; g.fillStyle = '#9ca3af'; g.fillText(m.displayClock().text, 256, 160);
-    if (this.replay) { g.fillStyle = '#ef4444'; g.font = 'bold 22px system-ui'; g.fillText('REPLAY', 256, 36); }
-    j.tex.needsUpdate = true;
-  }
-
-  private updateTrail(x: number, y: number, z: number, speed: number): void {
-    if (!this.trail) {
-      const g = new BufferGeometry(); g.setAttribute('position', new BufferAttribute(new Float32Array(16 * 3), 3));
-      this.trail = new Line(g, new LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.35 }));
-      this.trail.frustumCulled = false; this.scene.add(this.trail);
-    }
-    this.trailPts.push(new Vector3(x, y, z));
-    if (this.trailPts.length > 16) this.trailPts.shift();
-    this.trail.visible = speed > 14;
-    const a = this.trail.geometry.getAttribute('position') as BufferAttribute;
-    for (let i = 0; i < 16; i++) { const p = this.trailPts[Math.max(0, this.trailPts.length - 1 - i)] ?? this.trailPts[0]!; a.setXYZ(15 - i, p.x, p.y, p.z); }
-    a.needsUpdate = true;
-  }
-
-  private updateOffsideLine(rf: Float32Array | null): void {
-    if (!rf) { if (this.offsideLine) this.offsideLine.visible = false; return; }
-    if (!this.offsideLine) {
-      this.offsideLine = new Mesh(new PlaneGeometry(0.18, 68), new MeshBasicMaterial({ color: 0xffd23f, transparent: true, opacity: 0.55, depthWrite: false }));
-      this.offsideLine.rotation.x = -Math.PI / 2; this.offsideLine.position.y = 0.05; this.scene.add(this.offsideLine);
-    }
-    const bx = rf[0]!;
-    if (Math.abs(bx) < 18) { this.offsideLine.visible = false; return; }
-    const sgn = Math.sign(bx);
-    // the defending team is the one whose keeper (slot 0) stands in that half
-    let best: number[] | null = null;
-    for (const t of [0, 1]) { const gx = rf[12 + (t * 11) * PF]!; if (Math.sign(gx) === sgn && Math.abs(gx) > 25) { best = []; for (let i = 0; i < 11; i++) { const o = 12 + (t * 11 + i) * PF; if (rf[o + 3] !== 99) best.push(rf[o]! * sgn); } } }
-    if (!best || best.length < 2) { this.offsideLine.visible = false; return; }
-    best.sort((a, b) => b - a);
-    this.offsideLine.visible = true; this.offsideLine.position.x = best[1]! * sgn;
+    const x = p.px + (p.x - p.px) * alpha, z = p.py + (p.y - p.py) * alpha;
+    const face = p.pface + angleDiff(p.pface, p.face) * alpha;
+    const sk = p.skill ? skillById(p.skill.id) : p.state === 'skill' ? skillById(p.stateName) : undefined;
+    const speed = Math.hypot(p.pvx + (p.vx - p.pvx) * alpha, p.pvy + (p.vy - p.pvy) * alpha);
+    const stride = p.pstride + (p.stride - p.pstride) * alpha;
+    const stateT = p.stateT >= p.pstateT ? p.pstateT + (p.stateT - p.pstateT) * alpha : p.stateT;
+    const kp = this.kickPow.get(p);
+    return {
+      visible: !p.sentOff, x, z, face, state: p.state, stateName: p.stateName, stateT, stateDur: p.stateDur, speed, stride,
+      hasBall: m.owner === p, ballSide: p.ballSide, dominantFoot: p.data.foot, weakFoot: p.data.weakFoot, tired: m.cfg.fatigue ? 1 - p.stamina : 0, keeper: p.isGK(),
+      skillAnim: sk?.anim ?? null, skillU: p.skill ? p.skill.t / p.skill.dur : 0, skillSide: p.skill?.dx ?? 1, diveSide: p.sx >= 0 ? 1 : -1, diveH: p.sz, celebT: this.time, kickPower: kp && this.time - kp.t < 0.5 ? kp.p : 0.55,
+    };
   }
 
   private sampleReplay(): Float32Array | null {
@@ -544,198 +311,446 @@ export class MatchView {
     return this.replayTmp;
   }
 
-  private rpFromPlayer(p: MPlayer, alpha: number, dt: number, v: PlayerView): RenderPlayer {
-    const m = this.match;
-    const x = p.px + (p.x - p.px) * alpha, z = p.py + (p.y - p.py) * alpha;
-    const face = p.pface + angleDiff(p.pface, p.face) * alpha;
-    const sk = p.skill ? skillById(p.skill.id) : p.state === 'skill' ? skillById(p.stateName) : undefined;
-    const speed = Math.hypot(p.pvx + (p.vx - p.pvx) * alpha, p.pvy + (p.vy - p.pvy) * alpha);
-    const stride = p.pstride + (p.stride - p.pstride) * alpha;
-    const stateT = p.stateT >= p.pstateT ? p.pstateT + (p.stateT - p.pstateT) * alpha : p.stateT;
-    // dive direction relative to the player's left
-    const diveSide = Math.sign(-p.sx * Math.cos(face)) || 1;
-    void dt; void v;
-    return {
-      visible: !p.sentOff, x, z, face, state: p.state, stateName: p.stateName, stateT, stateDur: p.stateDur, speed, stride,
-      hasBall: m.owner === p, ballSide: p.ballSide, dominantFoot: p.data.foot, weakFoot: p.data.weakFoot, tired: m.cfg.fatigue ? 1 - p.stamina : 0, keeper: p.isGK(),
-      skillAnim: sk?.anim ?? null, skillU: p.skill ? p.skill.t / p.skill.dur : 0, skillSide: p.skill?.dx ?? 1, diveSide, diveH: p.sz, celebT: this.time, kickPower: 0.6,
-    };
+  private updateBallOrientation(wx: number, wy: number, wz: number, dt: number): void {
+    const w = Math.hypot(wx, wy, wz);
+    if (w < 0.01) return;
+    const step = Math.min(w * dt, 1.2) / w;
+    for (const v of this.ballVecs) {
+      // dv = ω × v
+      const cx = wy * v[2] - wz * v[1], cy = wz * v[0] - wx * v[2], cz = wx * v[1] - wy * v[0];
+      v[0] += cx * step; v[1] += cy * step; v[2] += cz * step;
+      const l = Math.hypot(v[0], v[1], v[2]) || 1; v[0] /= l; v[1] /= l; v[2] /= l;
+    }
   }
 
-  private syncPlayers(alpha: number, dt: number, rf: Float32Array | null, controlled: MPlayer | null): void {
+  // ---------------------------------------------------------------- drawing
+
+  private render(players: Array<{ pv: PlayerView; rp: RenderPlayer; p: MPlayer }>, bx: number, by: number, bz: number, rf: Float32Array | null, dt: number, controlled: MPlayer | null): void {
+    const ctx = this.ctx, d = this.director, k = this.pixelRatio, S = d.scale;
+    const W = this.cssW, H = this.cssH;
+    const night = this.tod === 'night';
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = '#10141c'; ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+    const worldTransform = (): void => {
+      ctx.setTransform(k * S, 0, 0, k * S, k * (W / 2 - (d.x - d.shakeX) * S), k * (H / 2 - (d.y - d.shakeY) * S));
+    };
+    worldTransform();
+    const vp = { x0: d.x - W / 2 / S - 2, y0: d.y - H / 2 / S - 2, x1: d.x + W / 2 / S + 2, y1: d.y + H / 2 / S + 2 };
+
+    // ---- environment
+    drawStadiumGround(ctx, this.stadium, vp);
+    this.pitch.draw(ctx, S, vp, this.time);
+    this.drawDrill(ctx, S);
+    this.pitch.drawGoals(ctx, S, { x: bx, y: by, z: bz }, night);
+    this.pitch.drawFlags(ctx, this.time, S);
+    drawCrowd(ctx, this.stadium, this.time, this.crowdExcite, vp);
+    this.drawDugouts(ctx);
+
+    // ---- wear marks
+    this.wearT += dt;
+    if (this.quality.pitchWear && !this.replay && this.wearT > 0.4) {
+      this.wearT = 0;
+      for (const { p } of players) { if (p.speed > 3 || p.isGK()) this.pitch.wear(p.x, p.y, p.isGK() ? 0.6 : Math.min(1, p.speed / 8)); }
+    }
+
+    // ---- ground markers (under the players)
+    this.drawGroundMarkers(ctx, S, rf);
+
+    // ---- shadows
+    const PS = clamp(1.95 * Math.pow(20 / Math.max(S, 6), 0.4), 1.6, 2.7);
+    this.drawShadows(ctx, players, bx, by, bz, PS);
+
+    // ---- players: update poses, then draw in painter's order
+    const drawList: Array<{ pv: PlayerView; rp: RenderPlayer; p: MPlayer | null; sy: number }> = [];
+    for (const e of players) {
+      const { pv, rp, p } = e;
+      if (!rp.visible) continue;
+      const dxb = bx - rp.x, dyb = by - rp.z;
+      const cf = Math.cos(rp.face), sf = Math.sin(rp.face);
+      const near = Math.hypot(dxb, dyb) < 3.2;
+      const bl: BallLocal | null = near ? { x: dxb * cf + dyb * sf, y: -dxb * sf + dyb * cf, z: bz } : null;
+      // head looks at the ball when it matters, otherwise forward
+      let look: number | null = null;
+      if (Math.hypot(dxb, dyb) < 22 && !rp.hasBall) look = angleDiff(rp.face, Math.atan2(dyb, dxb));
+      pv.painter.update(pv.anim, rp, bl, look, dt, this.time, 'player');
+      if (this.quality.footTrails && (rp.state === 'kick' || rp.state === 'skill' || rp.state === 'tackle')) {
+        pv.painter.computeFeet(pv.anim, rp);
+        const f = pv.painter.footWorld;
+        const useR = pv.anim.fRl >= pv.anim.fLl;
+        pushTrail(useR ? pv.anim.trailR : pv.anim.trailL, useR ? f.rx : f.lx, useR ? f.ry : f.ly, 8);
+      } else { if (pv.anim.trailL.length) pv.anim.trailL.splice(0, 2); if (pv.anim.trailR.length) pv.anim.trailR.splice(0, 2); }
+      // slide/sprint dust
+      if (!this.replay) this.playerFx(pv, rp, p, dt);
+      pv.sx = d.toScreenX(rp.x); pv.sy = d.toScreenY(rp.z);
+      drawList.push({ pv, rp, p, sy: rp.z });
+    }
+    drawList.sort((a, b) => a.sy - b.sy);
+
+    // foot trails
+    if (this.quality.footTrails) this.drawFootTrails(ctx, drawList, S);
+
+    // officials (referee + assistants) join the list
+    this.updateOfficials(dt, drawList);
+
+    const u = S * PS; // pixels per metre of figure space (screen units)
+    ctx.setTransform(k, 0, 0, k, 0, 0);
+    // legs
+    for (const e of drawList) e.pv.painter.drawLegs(ctx, e.pv.anim, e.pv.style, e.rp, e.pv.sx, e.pv.sy, u);
+    // ball (low) between legs and bodies so boots seem to touch it
+    const highBall = bz > 1.3;
+    if (!highBall) this.drawBall(ctx, bx, by, bz, S, dt);
+    const showNum = S > 12;
+    for (const e of drawList) e.pv.painter.drawBody(ctx, e.pv.anim, e.pv.style, e.rp, e.pv.sx, e.pv.sy, u, showNum);
+    if (highBall) this.drawBall(ctx, bx, by, bz, S, dt);
+
+    // controlled-player arrows
+    this.drawSelectionArrows(ctx, u, S);
+
+    // ---- world fx
+    worldTransform();
+    this.particles.draw(ctx, S);
+    drawRoofs(ctx, this.stadium, night);
+    this.drawPopups(ctx);
+
+    // ---- lighting
+    ctx.setTransform(k, 0, 0, k, 0, 0);
+    if (this.quality.lighting) {
+      this.lighting.draw(ctx, W, H, (x, y) => [d.toScreenX(x), d.toScreenY(y)], S, this.stadium.masts, { x: bx, y: by }, this.flash);
+      if (night || this.tod === 'dusk') {
+        // emissive elements stay bright: boards and floodlight heads are redrawn after the darkness
+        worldTransform();
+        this.drawBoardsNow(ctx, true);
+        this.drawMastLamps(ctx);
+        ctx.setTransform(k, 0, 0, k, 0, 0);
+      } else { worldTransform(); this.drawBoardsNow(ctx, false); ctx.setTransform(k, 0, 0, k, 0, 0); }
+    } else { worldTransform(); this.drawBoardsNow(ctx, false); ctx.setTransform(k, 0, 0, k, 0, 0); }
+
+    // ---- screen space
+    this.weather.draw(ctx, W, H, night);
+    if (this.quality.vignette) vignette(ctx, W, H, GRADES[this.opts.grade].vignette);
+    if (this.replay) this.drawReplayFrame(ctx, W, H);
+    if (this.letterbox > 0.01) { ctx.fillStyle = '#000'; const lb = this.letterbox * H * 0.1; ctx.fillRect(0, 0, W, lb); ctx.fillRect(0, H - lb, W, lb); }
+    if (this.fade > 0.01) { ctx.fillStyle = `rgba(0,0,0,${this.fade})`; ctx.fillRect(0, 0, W, H); }
+    void controlled;
+  }
+
+  private drawBoardsNow(ctx: CanvasRenderingContext2D, night: boolean): void {
     const m = this.match;
-    const cam = this.director.camera.position;
-    const lod = this.quality.animLod;
-    for (const team of m.teams) {
-      for (let i = 0; i < team.players.length; i++) {
-        const p = team.players[i]!;
-        let view = this.views.get(p);
-        if (!view) {
-          const rig = this.makeRig(p, team);
-          this.scene.add(rig.root);
-          view = new PlayerView(rig, p);
-          const sh = new Mesh(new CircleGeometry(0.55, 16), new MeshBasicMaterial({ map: this.blob, transparent: true, depthWrite: false }));
-          sh.rotation.x = -Math.PI / 2; sh.visible = this.quality.shadows === 'off'; this.scene.add(sh); view.shadow = sh;
-          rig.body.castShadow = this.quality.shadows !== 'off'; rig.shirtMesh.castShadow = this.quality.shadows !== 'off';
-          view.lastFace = p.face;
-          this.views.set(p, view);
-        }
-        let rp: RenderPlayer;
-        if (rf && !p.subbedOff) {
-          const o = 12 + (team.side * 11 + i) * PF;
-          const st = stateFromCode(Math.round(rf[o + 3]!));
-          const extra = rf[o + 7]!;
-          const flags = rf[o + 9] ?? 0;
-          rp = {
-            visible: rf[o + 3] !== 99, x: rf[o]!, z: rf[o + 1]!, face: rf[o + 2]!, state: st, stateName: '', stateT: rf[o + 4]!, stateDur: st === 'kick' ? 0.34 : st === 'slide' ? 0.95 : st === 'dive' ? 1 : st === 'tackle' ? 0.5 : st === 'jump' ? 0.7 : st === 'down' ? 1.5 : st === 'throw' ? 0.6 : 0.8,
-            speed: rf[o + 6]!, stride: rf[o + 5]!, hasBall: (flags & 1) !== 0, ballSide: (flags & 2) !== 0 ? 'R' : 'L', dominantFoot: 'R', weakFoot: 4, tired: rf[o + 10] ?? 0.2, keeper: p.isGK(),
-            skillAnim: extra >= 10 ? ANIMS[Math.round(extra) - 10] ?? 'feint' : null, skillU: Math.min(1, rf[o + 4]! / 0.7), skillSide: 1, diveSide: Math.sign(-extra * Math.cos(rf[o + 2]!)) || 1, diveH: rf[o + 8]!, celebT: this.time, kickPower: 0.6,
-          };
-        } else rp = this.rpFromPlayer(p, alpha, dt, view);
-        this.drawPlayer(view, rp, dt, cam, lod, p === controlled);
+    const cycle = this.boardT / 9;
+    const set = ((Math.floor(cycle) % 3) + 3) % 3;
+    const fade = clamp01((cycle - Math.floor(cycle) - 0.88) / 0.12);
+    const led = `${m.teams[0].short}  ${m.teams[0].score} – ${m.teams[1].score}  ${m.teams[1].short}`;
+    drawBoards(ctx, this.stadium, set, fade, led, this.time);
+    void night;
+  }
+
+  private drawMastLamps(ctx: CanvasRenderingContext2D): void {
+    for (const l of this.stadium.masts) {
+      ctx.fillStyle = '#1b2230'; ctx.fillRect(l.x - 1.8, l.y - 0.9, 3.6, 1.8);
+      ctx.fillStyle = '#fff4d6';
+      for (let i = 0; i < 4; i++) for (let j = 0; j < 2; j++) { ctx.beginPath(); ctx.arc(l.x - 1.2 + i * 0.8, l.y - 0.4 + j * 0.8, 0.26, 0, Math.PI * 2); ctx.fill(); }
+    }
+  }
+
+  private drawDrill(ctx: CanvasRenderingContext2D, S: number): void {
+    for (const m of this.drill) {
+      const pulse = m.pulse ? 1 + Math.sin(this.time * 6) * 0.08 : 1;
+      const r = (m.r ?? 0.6) * pulse;
+      if (m.kind === 'cone') {
+        ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.beginPath(); ctx.ellipse(m.x + 0.1, m.y + 0.12, r * 0.55, r * 0.4, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = m.color; ctx.beginPath(); ctx.arc(m.x, m.y, r * 0.42, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.65)'; ctx.beginPath(); ctx.arc(m.x, m.y, r * 0.2, 0, Math.PI * 2); ctx.fill();
+      } else if (m.kind === 'zone') {
+        ctx.fillStyle = m.color; ctx.globalAlpha = 0.22; ctx.beginPath(); ctx.arc(m.x, m.y, r, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1;
+        ctx.strokeStyle = m.color; ctx.lineWidth = Math.max(0.08, 2.5 / S); ctx.beginPath(); ctx.arc(m.x, m.y, r, 0, Math.PI * 2); ctx.stroke();
+      } else {
+        if (m.label) { ctx.font = '800 0.7px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = m.color; ctx.fillText(m.label, m.x, m.y - r - 0.4); }
+        ctx.strokeStyle = m.color; ctx.lineWidth = Math.max(0.12, 3 / S); ctx.beginPath(); ctx.arc(m.x, m.y, r, 0, Math.PI * 2); ctx.stroke();
+        ctx.beginPath(); ctx.arc(m.x, m.y, r * 0.35, 0, Math.PI * 2); ctx.fillStyle = m.color; ctx.globalAlpha = 0.6; ctx.fill(); ctx.globalAlpha = 1;
       }
     }
   }
 
-  private drawPlayer(v: PlayerView, rp: RenderPlayer, dt: number, cam: Vector3, lod: number, controlled: boolean): void {
-    const root = v.rig.root;
-    root.visible = rp.visible;
-    if (v.shadow) v.shadow.visible = rp.visible && this.quality.shadows === 'off';
-    if (!rp.visible) return;
-    const dist = Math.hypot(rp.x - cam.x, rp.z - cam.z);
-    v.frame++;
-    const skipMod = lod === 0 ? 1 : lod === 1 ? (dist > 70 ? 2 : 1) : dist > 45 ? 3 : 2;
-    const doPose = controlled || skipMod === 1 || v.frame % skipMod === 0;
-    const dFace = angleDiff(v.lastFace, rp.face);
-    v.turn += (dFace / Math.max(dt, 1e-3) - v.turn) * Math.min(1, dt * 8);
-    v.lastFace = rp.face;
-    v.accel += ((rp.speed - v.lastSpeed) / Math.max(dt, 1e-3) - v.accel) * Math.min(1, dt * 6);
-    v.lastSpeed = rp.speed;
-    const b = this.match.ball;
-    const ca = Math.cos(rp.face), sa = Math.sin(rp.face);
-    const bdx = b.x - rp.x, bdy = b.y - rp.z;
-    const inp: PoseInput = {
-      state: rp.state, stateName: rp.stateName, stateT: rp.stateT, stateDur: rp.stateDur, speed: rp.speed, maxSpeed: 9.2, stride: rp.stride, turn: v.turn, accel: v.accel,
-      hasBall: rp.hasBall, ballSide: rp.ballSide, dominantFoot: rp.dominantFoot, weakFoot: rp.weakFoot, isKeeper: rp.keeper, tired: rp.tired,
-      ballLocal: { x: bdx * sa - bdy * ca, y: b.z, z: bdx * ca + bdy * sa },
-      skillAnim: rp.skillAnim, skillU: rp.skillU, skillSide: rp.skillSide, diveSide: rp.diveSide, diveHeight: rp.diveH,
-      celebrateId: v.celeb, celebrateT: rp.celebT, role: 'player', armUp: 0, flag: 0, seed: v.seed, time: this.time, kickPower: rp.kickPower,
-    };
-    if (doPose) {
-      this.tmpV.set(b.x, b.z, b.y);
-      applyPose(v.rig, inp, v.ps, dt * skipMod, this.tmpV);
+  /** Dugouts with substitutes and staff in the technical areas below the near touchline. */
+  private drawDugouts(ctx: CanvasRenderingContext2D): void {
+    const y0 = HALF_W + 1.8;
+    for (const side of [0, 1] as const) {
+      const t = this.match.teams[side];
+      const cx = side === 0 ? -15 : 15;
+      // bench shell
+      ctx.fillStyle = 'rgba(0,0,0,0.22)'; ctx.fillRect(cx - 7.1, y0 + 0.25, 14.2, 2.9);
+      ctx.fillStyle = 'rgba(180,200,220,0.22)'; ctx.fillRect(cx - 7, y0, 14, 2.8);
+      ctx.strokeStyle = 'rgba(230,238,248,0.7)'; ctx.lineWidth = 0.1; ctx.strokeRect(cx - 7, y0, 14, 2.8);
+      ctx.fillStyle = '#2b3342'; ctx.fillRect(cx - 6.6, y0 + 1.5, 13.2, 0.5);
+      const n = Math.min(9, t.bench.length + 2);
+      for (let i = 0; i < n; i++) {
+        const px = cx - 6 + i * (12 / Math.max(1, n - 1));
+        const react = this.dugoutReact > 0 && this.lastGoalSide === side ? Math.abs(Math.sin(this.time * 9 + i)) * 0.35 : 0;
+        ctx.fillStyle = 'rgba(0,0,0,0.22)'; ctx.beginPath(); ctx.ellipse(px + 0.12, y0 + 1.12, 0.38, 0.26, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = i < 2 ? '#1f2937' : t.kit.secondary; ctx.beginPath(); ctx.ellipse(px, y0 + 1.0 - react, 0.34, 0.24, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = SKIN_TONES[(i * 3 + side) % 5]!; ctx.beginPath(); ctx.arc(px, y0 + 0.85 - react, 0.14, 0, Math.PI * 2); ctx.fill();
+      }
+      // manager paces along the technical area
+      const mx = cx + Math.sin(this.benchWalk * 0.35 + side * 2) * 4.5 + (this.dugoutReact > 0 && this.lastGoalSide === side ? Math.sin(this.time * 8) * 0.5 : 0);
+      ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.beginPath(); ctx.ellipse(mx + 0.15, y0 - 0.55, 0.42, 0.28, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#111827'; ctx.beginPath(); ctx.ellipse(mx, y0 - 0.72, 0.36, 0.26, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = SKIN_TONES[(side + 1) % 5]!; ctx.beginPath(); ctx.arc(mx, y0 - 0.9, 0.14, 0, Math.PI * 2); ctx.fill();
     }
-    const ud = root.userData as { pitch?: number; roll?: number; dy?: number };
-    root.rotation.order = 'YXZ';
-    root.position.set(rp.x, ud.dy ?? 0, rp.z);
-    root.rotation.set(ud.pitch ?? 0, Math.PI / 2 - rp.face, ud.roll ?? 0);
-    if (v.shadow) { v.shadow.position.set(rp.x, 0.03, rp.z); v.shadow.scale.setScalar(1.1); }
-    // sweat / dirt
-    v.rig.sweat.value = rp.tired * 0.9;
-    if (this.weatherKind === 'rain') v.rig.dirt.value = Math.min(0.5, v.rig.dirt.value + dt * 0.002);
   }
 
-  private syncExtras(dt: number): void {
+  private drawShadows(ctx: CanvasRenderingContext2D, players: Array<{ rp: RenderPlayer }>, bx: number, by: number, bz: number, PS: number): void {
+    if (this.quality.shadows === 'off') return;
+    const night = this.tod === 'night', dusk = this.tod === 'dusk';
+    const ox = night ? 0.12 : dusk ? 0.95 : 0.34, oy = night ? 0.16 : dusk ? 0.45 : 0.46;
+    const a = night ? 0.22 : dusk ? 0.3 : this.weatherKind === 'clear' ? 0.3 : 0.16;
+    for (const { rp } of players) {
+      if (!rp.visible) continue;
+      const lying = rp.state === 'slide' || rp.state === 'down' || rp.state === 'dive';
+      const jump = rp.state === 'jump' || rp.state === 'dive' ? 0.15 : 0;
+      ctx.fillStyle = `rgba(0,0,0,${a})`;
+      ctx.beginPath();
+      if (lying) ctx.ellipse(rp.x + ox * 1.1, rp.z + oy * 1.1, 0.78 * PS * 0.62, 0.34 * PS * 0.6, rp.face, 0, Math.PI * 2);
+      else ctx.ellipse(rp.x + ox * (1 + jump), rp.z + oy * (1 + jump), 0.34 * PS * 0.9, 0.32 * PS * 0.75, Math.atan2(oy, ox), 0, Math.PI * 2);
+      ctx.fill();
+      if (this.quality.shadows !== 'low' && !lying) { ctx.fillStyle = `rgba(0,0,0,${a * 0.6})`; ctx.beginPath(); ctx.ellipse(rp.x + ox * 1.9, rp.z + oy * 1.9, 0.14 * PS, 0.12 * PS, 0, 0, Math.PI * 2); ctx.fill(); }
+    }
+    // ball
+    const bs = 1 + bz * 0.12;
+    ctx.fillStyle = `rgba(0,0,0,${Math.max(0.1, a * 1.05 - bz * 0.05)})`;
+    ctx.beginPath(); ctx.ellipse(bx + ox * (0.25 + bz * 0.5), by + oy * (0.25 + bz * 0.5), 0.2 * bs, 0.17 * bs, 0, 0, Math.PI * 2); ctx.fill();
+  }
+
+  private drawFootTrails(ctx: CanvasRenderingContext2D, list: Array<{ pv: PlayerView }>, S: number): void {
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    for (const { pv } of list) for (const tr of [pv.anim.trailL, pv.anim.trailR]) {
+      if (tr.length < 6) continue;
+      for (let i = 2; i < tr.length; i += 2) {
+        const f = i / tr.length;
+        ctx.strokeStyle = `rgba(255,255,255,${(f * 0.42).toFixed(3)})`; ctx.lineWidth = Math.max(0.04, (0.05 + f * 0.1) * (S > 8 ? 1 : 0.7));
+        ctx.beginPath(); ctx.moveTo(tr[i - 2]!, tr[i - 1]!); ctx.lineTo(tr[i]!, tr[i + 1]!); ctx.stroke();
+      }
+    }
+  }
+
+  private playerFx(pv: PlayerView, rp: RenderPlayer, p: MPlayer, dt: number): void {
+    if (rp.state === 'slide') {
+      pv.slideT += dt;
+      if (pv.slideT > 0.05) {
+        pv.slideT = 0;
+        this.particles.dust(rp.x + Math.cos(rp.face) * 0.5, rp.z + Math.sin(rp.face) * 0.5, 2, 1.4);
+        this.pitch.skid(rp.x, rp.z, Math.cos(rp.face), Math.sin(rp.face), 0.7);
+      }
+    } else pv.slideT = 0;
+    if (rp.state === 'normal' && rp.speed > 6.2 && Math.abs(pv.anim.turn) > 5.5 && Math.random() < 0.3) this.particles.dust(rp.x, rp.z, 2, 1);
+    if (rp.state === 'normal' && rp.speed > 7.5 && Math.random() < 0.04) this.particles.turf(rp.x, rp.z, -Math.cos(rp.face), -Math.sin(rp.face), 1);
+    pv.lastState = p.state;
+  }
+
+  private drawBall(ctx: CanvasRenderingContext2D, bx: number, by: number, bz: number, S: number, dt: number): void {
+    const d = this.director;
+    const R = 0.28;
+    const skillLift = this.skillBallLift();
+    const z = bz + skillLift;
+    const lift = Math.max(0, z) * 0.5;
+    const sx = d.toScreenX(bx), sy = d.toScreenY(by) - lift * S;
+    const r = Math.max(1.5, R * S * (1 + clamp(z, 0, 12) * 0.05));
+    // trail
+    const speed = Math.hypot(bx - this.lastBall.x, by - this.lastBall.y) / Math.max(dt, 1e-3);
+    this.lastBall.x = bx; this.lastBall.y = by; this.lastBall.z = bz;
+    this.trailPts.push(sx, sy);
+    if (this.trailPts.length > 24) this.trailPts.splice(0, 2);
+    if (this.quality.ballTrail && this.opts.trail && speed > 14 && !this.match.sp) {
+      const n = this.trailPts.length / 2;
+      ctx.lineCap = 'round';
+      for (let i = 1; i < n; i++) {
+        const f = i / n;
+        ctx.strokeStyle = `rgba(255,255,255,${(f * f * 0.5).toFixed(3)})`; ctx.lineWidth = r * 1.5 * f;
+        ctx.beginPath(); ctx.moveTo(this.trailPts[(i - 1) * 2]!, this.trailPts[(i - 1) * 2 + 1]!); ctx.lineTo(this.trailPts[i * 2]!, this.trailPts[i * 2 + 1]!); ctx.stroke();
+      }
+    } else if (this.trailPts.length > 4) this.trailPts.splice(0, this.trailPts.length - 4);
+    // body
+    ctx.save(); ctx.translate(sx, sy);
+    const g = ctx.createRadialGradient(-r * 0.35, -r * 0.4, r * 0.1, 0, 0, r);
+    g.addColorStop(0, '#ffffff'); g.addColorStop(0.7, '#e9ebee'); g.addColorStop(1, '#b8bdc6');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill();
+    // panels follow the real spin
+    ctx.fillStyle = '#1a1d24';
+    for (const v of this.ballVecs) {
+      if (v[2] < 0.05) continue;
+      const pr = r * 0.34 * (0.45 + 0.55 * v[2]);
+      ctx.save(); ctx.translate(v[0] * r * 0.66, v[1] * r * 0.66);
+      ctx.rotate(Math.atan2(v[1], v[0])); ctx.scale(0.45 + 0.55 * v[2], 1);
+      ctx.beginPath(); ctx.arc(0, 0, pr, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+    }
+    ctx.strokeStyle = 'rgba(10,14,20,0.6)'; ctx.lineWidth = Math.max(1, r * 0.1); ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
+  }
+
+  /** The ball is flicked in the air by lift/flick skills even though the simulation keeps it low. */
+  private skillBallLift(): number {
+    const o = this.match.owner;
+    if (!o || o.state !== 'skill' || !o.skill) return 0;
+    const mv = skillById(o.skill.id);
+    if (!mv) return 0;
+    const u = clamp01(o.skill.t / o.skill.dur);
+    if (mv.anim === 'lift') return Math.sin(u * Math.PI) * 1.5;
+    if (mv.anim === 'flick') return Math.sin(clamp01((u - 0.3) / 0.5) * Math.PI) * 0.7;
+    if (mv.anim === 'hop') return Math.abs(Math.sin(u * Math.PI * 4)) * 0.3;
+    return 0;
+  }
+
+  private drawGroundMarkers(ctx: CanvasRenderingContext2D, S: number, rf: Float32Array | null): void {
     const m = this.match;
-    // referee and assistants
-    const rv = this.refViews[0];
-    if (rv) {
-      const r = m.ref;
-      const sp = Math.hypot(r.vx, r.vy);
-      rv.rig.root.position.set(r.x, 0, r.y); rv.rig.root.rotation.y = Math.PI / 2 - r.face;
-      rv.rig.root.rotation.order = 'YXZ';
-      rv.stride = (rv.stride ?? 0) + sp * dt / (1.6 + 0.27 * sp);
-      const cardT = (rv as PlayerView & { cardT?: number }).cardT ?? 0;
-      (rv as PlayerView & { cardT?: number }).cardT = Math.max(0, cardT - dt);
-      const inp = this.basicInput(rv, sp, 'referee', cardT > 0 ? 1 : 0, 0);
-      inp.stride = rv.stride; applyPose(rv.rig, inp, rv.ps, dt, null);
-    }
-    for (let i = 0; i < 2; i++) {
-      const av = this.refViews[1 + i]; if (!av) continue;
-      const a = m.assistants[i]!;
-      av.rig.root.position.set(a.x, 0, a.y); av.rig.root.rotation.y = a.side > 0 ? Math.PI : 0;
-      const sp = 0;
-      const inp = this.basicInput(av, sp, 'assistant', 0, i === 0 && a.flag ? 1 : 0);
-      applyPose(av.rig, inp, av.ps, dt, null);
-    }
-    // seated / crew: update at low rate
-    for (let i = 0; i < this.extras.length; i++) {
-      const ev = this.extras[i]!;
-      if ((this.frameCount + i) % 4 !== 0) continue;
-      const inp = this.basicInput(ev, 0, 'player', 0, 0);
-      inp.state = ev.role === 'bench' ? 'sit' : ev.role === 'crew' ? 'crew' : 'normal';
-      // react to the game: stand/cheer after a goal for the scoring side
-      if (ev.role === 'bench' && this.crowdExcite > 0.8) inp.state = 'celebrate';
-      applyPose(ev.rig, inp, ev.ps, dt * 4, null);
-    }
-  }
-
-  private basicInput(v: PlayerView, speed: number, role: 'player' | 'referee' | 'assistant', armUp: number, flag: number): PoseInput {
-    return {
-      state: 'normal', stateName: '', stateT: 0, stateDur: 0, speed, maxSpeed: 7, stride: v.stride ?? 0, turn: 0, accel: 0, hasBall: false, ballSide: 'R', dominantFoot: 'R', weakFoot: 3,
-      isKeeper: false, tired: 0, ballLocal: null, skillAnim: null, skillU: 0, skillSide: 1, diveSide: 1, diveHeight: 1, celebrateId: 0, celebrateT: this.time, role, armUp, flag,
-      seed: v.seed, time: this.time, kickPower: 0.5,
-    };
-  }
-
-  private updateMarkers(alpha: number): void {
-    const m = this.match;
-    // human-selected players get a ring + arrow
-    const used = new Set<number>();
+    const lw = Math.max(0.05, 1.5 / S);
+    // controlled player ring
     m.humans.forEach((h, i) => {
       const p = h.player;
-      let mk = this.markers.get(i);
-      if (!mk) {
-        // deliberately dim: toneMapped, low opacity, so it reads as a soft ground marker and never triggers bloom
-        const col = i === 0 ? 0x2f5f9e : i === 1 ? 0x9e3a3a : i === 2 ? 0x2f8a52 : 0x9a7a2a;
-        const ring = new Mesh(new RingGeometry(0.66, 0.72, 48), new MeshBasicMaterial({ color: col, transparent: true, opacity: 0.2, depthWrite: false }));
-        ring.rotation.x = -Math.PI / 2;
-        const arrow = new Mesh(new ConeGeometry(0.14, 0.26, 16), new MeshBasicMaterial({ color: col, transparent: true, opacity: 0.4 }));
-        arrow.rotation.x = Math.PI;
-        this.scene.add(ring, arrow); mk = { ring, arrow }; this.markers.set(i, mk);
-      }
-      used.add(i);
-      if (!p || !p.active()) { mk.ring.visible = false; mk.arrow.visible = false; return; }
-      const x = p.px + (p.x - p.px) * alpha, z = p.py + (p.y - p.py) * alpha;
-      mk.ring.visible = true; mk.arrow.visible = true;
-      mk.ring.position.set(x, 0.04, z);
-      mk.arrow.position.set(x, 2.45 + Math.sin(this.time * 4) * 0.05, z);
+      if (!p || !p.active() || this.replay) return;
+      const col = PLAYER_COLORS[i % 4]!;
+      const x = p.px + (p.x - p.px) * 0.5, y = p.py + (p.y - p.py) * 0.5;
+      ctx.strokeStyle = col; ctx.lineWidth = lw * 1.5; ctx.globalAlpha = 0.75;
+      ctx.beginPath(); ctx.ellipse(x, y, 0.82, 0.74, 0, 0, Math.PI * 2); ctx.stroke();
+      ctx.globalAlpha = 0.14; ctx.fillStyle = col; ctx.fill(); ctx.globalAlpha = 1;
+      // charge / aim arrow
+      this.drawAim(ctx, h, p, S, col);
     });
-    for (const [i, mk] of this.markers) if (!used.has(i)) { mk.ring.visible = false; mk.arrow.visible = false; }
-
-    // target ring for the pass receiver
+    // pass target
     const pi = m.passInfo;
-    const humanSide = m.humans[0]?.side;
-    if (pi && pi.receiver && !pi.completed && humanSide === pi.passer.side && m.time - pi.time < 2.5) {
-      this.targetRing.visible = true;
-      this.targetRing.position.set(pi.receiver.x, 0.05, pi.receiver.y);
-      this.targetRing.scale.setScalar(1 + Math.sin(this.time * 12) * 0.08);
-    } else this.targetRing.visible = false;
-
-    // set-piece aim guide
+    const hs = m.humans[0];
+    if (pi && pi.receiver && !pi.completed && hs && hs.side === pi.passer.side && m.time - pi.time < 2.5 && !this.replay) {
+      const r = pi.receiver;
+      const pulse = 1 + Math.sin(this.time * 12) * 0.08;
+      ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = lw * 1.4; ctx.setLineDash([0.25, 0.2]);
+      ctx.beginPath(); ctx.arc(r.x, r.y, 0.95 * pulse, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+    }
+    // set-piece guides
     const sp = m.sp;
-    const taker = sp?.taker;
-    if (sp && sp.phase === 'ready' && taker && taker.human >= 0 && ['freeKick', 'indirectFreeKick', 'penalty'].includes(sp.type)) {
-      const dir = m.teams[sp.side].dir;
-      const gx = dir * HALF_L;
-      const ty = dir * sp.aimY * 3.66, tz = 0.2 + sp.aimH * 2.2;
-      this.aimGroup.visible = true;
-      const a = this.aimLine.geometry.getAttribute('position') as BufferAttribute;
-      a.setXYZ(0, sp.x, 0.2, sp.y); a.setXYZ(1, gx, tz, ty); a.needsUpdate = true;
-      this.aimRing.position.set(gx - dir * 0.2, tz, ty);
-      this.aimRing.rotation.y = Math.PI / 2;
-    } else this.aimGroup.visible = false;
+    if (sp && sp.phase !== 'done' && !this.replay) {
+      const taker = sp.taker;
+      if (sp.phase === 'ready' && ['freeKick', 'indirectFreeKick'].includes(sp.type)) {
+        ctx.strokeStyle = 'rgba(255,255,255,0.4)'; ctx.setLineDash([0.4, 0.4]); ctx.lineWidth = lw;
+        ctx.beginPath(); ctx.arc(sp.x, sp.y, 9.15, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+      }
+      if (sp.phase === 'ready' && taker && taker.human >= 0 && ['freeKick', 'indirectFreeKick', 'penalty'].includes(sp.type)) {
+        const dir = m.teams[sp.side].dir, gx = dir * HALF_L;
+        const ty = dir * sp.aimY * HALF_GOAL * 0.94;
+        ctx.strokeStyle = 'rgba(255,255,255,0.65)'; ctx.setLineDash([0.5, 0.35]); ctx.lineWidth = lw * 1.2;
+        ctx.beginPath(); ctx.moveTo(sp.x, sp.y); ctx.lineTo(gx, ty); ctx.stroke(); ctx.setLineDash([]);
+        // reticle on the goal line; the ring height shows how high the shot will go
+        const hgt = sp.aimH;
+        ctx.strokeStyle = '#ffd23f'; ctx.lineWidth = lw * 1.6;
+        ctx.beginPath(); ctx.arc(gx + dir * 0.3, ty, 0.42, 0, Math.PI * 2); ctx.stroke();
+        ctx.fillStyle = '#ffd23f'; ctx.fillRect(gx + dir * 1.0, ty - 0.45, 0.14, 0.9); ctx.fillStyle = '#05080f'; ctx.fillRect(gx + dir * 1.0, ty - 0.45, 0.14, 0.9 * (1 - hgt));
+        // curve hint
+        if (Math.abs(sp.curve) > 0.05) { ctx.strokeStyle = 'rgba(120,200,255,0.8)'; ctx.beginPath(); ctx.moveTo(sp.x, sp.y); ctx.quadraticCurveTo((sp.x + gx) / 2, (sp.y + ty) / 2 + sp.curve * 6, gx, ty); ctx.stroke(); }
+      }
+      if (sp.phase === 'ready' && taker && taker.human >= 0 && sp.type === 'corner') {
+        const dir = m.teams[sp.side].dir, gx = dir * HALF_L;
+        ctx.strokeStyle = sp.cornerStyle === 'in' ? 'rgba(255,210,63,0.85)' : 'rgba(120,200,255,0.85)'; ctx.lineWidth = lw * 1.6; ctx.setLineDash([0.6, 0.4]);
+        ctx.beginPath(); ctx.moveTo(sp.x, sp.y); ctx.quadraticCurveTo(gx - dir * 6, sp.y * 0.2 + (sp.cornerStyle === 'in' ? 5 : -5) * Math.sign(sp.y), gx - dir * 9, 0); ctx.stroke(); ctx.setLineDash([]);
+        ctx.fillStyle = ctx.strokeStyle; ctx.beginPath(); ctx.arc(gx - dir * 9, 0, 0.45, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+    if (rf) this.drawOffsideLine(ctx, rf, lw);
+  }
+
+  private drawAim(ctx: CanvasRenderingContext2D, h: import('../match/types').HumanSlot, p: MPlayer, S: number, col: string): void {
+    const inp = h.input;
+    let held = 0; let kind: 'b1' | 'b2' | 'b3' | 'b4' | null = null;
+    for (const b of ['b1', 'b2', 'b3', 'b4'] as const) if (inp.down[b] && inp.held[b] > 0.05 && inp.held[b] > held) { held = inp.held[b]; kind = b; }
+    if (!kind || this.match.owner !== p) return;
+    const power = clamp01(held / 0.7);
+    const goalAng = Math.atan2(-p.y * 0.6, this.match.teams[p.side].dir * HALF_L - p.x);
+    const ang = Math.hypot(inp.mx, inp.my) > 0.25 ? Math.atan2(inp.my, inp.mx) : kind === 'b4' ? goalAng : p.face;
+    const color = kind === 'b4' ? '#ff7a45' : kind === 'b3' ? '#7cc4ff' : kind === 'b2' ? '#ffd23f' : '#ffffff';
+    const len = 2 + power * (kind === 'b1' ? 11 : 14);
+    const x = p.x, y = p.y;
+    const lw = Math.max(0.1, 3 / S) + power * 0.18;
+    ctx.strokeStyle = color; ctx.globalAlpha = 0.85; ctx.lineWidth = lw; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(x + Math.cos(ang) * 1.1, y + Math.sin(ang) * 1.1); ctx.lineTo(x + Math.cos(ang) * len, y + Math.sin(ang) * len); ctx.stroke();
+    const hx = x + Math.cos(ang) * len, hy = y + Math.sin(ang) * len;
+    ctx.fillStyle = color; ctx.beginPath(); ctx.moveTo(hx + Math.cos(ang) * 0.6, hy + Math.sin(ang) * 0.6); ctx.lineTo(hx + Math.cos(ang + 2.5) * 0.55, hy + Math.sin(ang + 2.5) * 0.55); ctx.lineTo(hx + Math.cos(ang - 2.5) * 0.55, hy + Math.sin(ang - 2.5) * 0.55); ctx.closePath(); ctx.fill();
+    ctx.globalAlpha = 1; void col;
+  }
+
+  private drawOffsideLine(ctx: CanvasRenderingContext2D, rf: Float32Array, lw: number): void {
+    const bx = rf[0]!;
+    if (Math.abs(bx) < 18) return;
+    const sgn = Math.sign(bx);
+    let best: number[] | null = null;
+    for (const t of [0, 1]) { const gx = rf[12 + t * 11 * PF]!; if (Math.sign(gx) === sgn && Math.abs(gx) > 25) { best = []; for (let i = 0; i < 11; i++) { const o = 12 + (t * 11 + i) * PF; if (rf[o + 3] !== 99) best.push(rf[o]! * sgn); } } }
+    if (!best || best.length < 2) return;
+    best.sort((a, b) => b - a);
+    ctx.strokeStyle = 'rgba(255,210,63,0.6)'; ctx.lineWidth = lw * 1.5; ctx.setLineDash([0.8, 0.6]);
+    ctx.beginPath(); ctx.moveTo(best[1]! * sgn, -HALF_W); ctx.lineTo(best[1]! * sgn, HALF_W); ctx.stroke(); ctx.setLineDash([]);
+  }
+
+  private drawSelectionArrows(ctx: CanvasRenderingContext2D, u: number, S: number): void {
+    if (this.replay) return;
+    this.match.humans.forEach((h, i) => {
+      const p = h.player;
+      if (!p || !p.active()) return;
+      const pv = this.views.get(p);
+      if (!pv) return;
+      const col = PLAYER_COLORS[i % 4]!;
+      const bob = Math.sin(this.time * 5) * 0.08;
+      const x = pv.sx, y = pv.sy - (0.95 + bob + pv.anim.air * 0.25) * u * 0.9;
+      const s = Math.max(5, S * 0.34);
+      ctx.fillStyle = col; ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = Math.max(1.5, s * 0.16); ctx.lineJoin = 'round';
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x - s, y - s * 1.35); ctx.lineTo(x + s, y - s * 1.35); ctx.closePath(); ctx.stroke(); ctx.fill();
+    });
+  }
+
+  private drawPopups(ctx: CanvasRenderingContext2D): void {
+    for (const pp of this.popups) {
+      const f = pp.t / 1.8;
+      ctx.globalAlpha = f < 0.12 ? f / 0.12 : 1 - Math.max(0, (f - 0.6) / 0.4);
+      ctx.font = `800 ${pp.size}px system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      const y = pp.y - f * 1.8;
+      ctx.lineWidth = pp.size * 0.18; ctx.strokeStyle = 'rgba(5,8,15,0.85)'; ctx.strokeText(pp.text, pp.x, y);
+      ctx.fillStyle = pp.color; ctx.fillText(pp.text, pp.x, y);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  private drawReplayFrame(ctx: CanvasRenderingContext2D, W: number, H: number): void {
+    const g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, 'rgba(30,60,120,0.16)'); g.addColorStop(0.5, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(30,60,120,0.16)');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 3; ctx.strokeRect(10, 10, W - 20, H - 20);
+  }
+
+  private updateOfficials(dt: number, list: Array<{ pv: PlayerView; rp: RenderPlayer; p: MPlayer | null; sy: number }>): void {
+    const m = this.match;
+    const d = this.director;
+    const r = m.ref;
+    const rv = this.refView;
+    const sp = Math.hypot(r.vx, r.vy);
+    rv.lastStride += sp * dt / (1.6 + 0.27 * sp);
+    const rrp: RenderPlayer = { visible: true, x: r.x, z: r.y, face: r.face, state: 'normal', stateName: '', stateT: 0, stateDur: 0, speed: sp, stride: rv.lastStride, hasBall: false, ballSide: 'R', dominantFoot: 'R', weakFoot: 3, tired: 0, keeper: false, skillAnim: null, skillU: 0, skillSide: 1, diveSide: 1, diveH: 0, celebT: this.time, kickPower: 0 };
+    rv.rp = rrp; rv.painter.update(rv.anim, rrp, null, null, dt, this.time, 'referee');
+    rv.sx = d.toScreenX(r.x); rv.sy = d.toScreenY(r.y);
+    list.push({ pv: rv, rp: rrp, p: null, sy: r.y });
+    for (let i = 0; i < 2; i++) {
+      const a = m.assistants[i]!; const av = this.assistViews[i]!;
+      const arp: RenderPlayer = { visible: true, x: a.x, z: a.y, face: a.side > 0 ? -Math.PI / 2 : Math.PI / 2, state: 'normal', stateName: '', stateT: 0, stateDur: 0, speed: 0, stride: 0, hasBall: false, ballSide: 'R', dominantFoot: 'R', weakFoot: 3, tired: 0, keeper: false, skillAnim: null, skillU: 0, skillSide: 1, diveSide: 1, diveH: 0, celebT: this.time, kickPower: 0 };
+      av.rp = arp; av.painter.update(av.anim, arp, null, null, dt, this.time, 'assistant');
+      if (i === 0 && a.flag) { av.anim.hRx = 0.55; av.anim.hRy = 0.3; }
+      av.sx = d.toScreenX(a.x); av.sy = d.toScreenY(a.y);
+      list.push({ pv: av, rp: arp, p: null, sy: a.y });
+    }
+    list.sort((x, y) => x.sy - y.sy);
   }
 
   dispose(): void {
-    for (const f of this.disposeFns) f();
-    this.post.dispose();
-    this.weather.dispose();
     this.stadium.dispose();
-    this.renderer.dispose();
+    this.particles.clear();
+    this.canvas.style.filter = '';
   }
 }
 
-export { PerspectiveCamera, Color };
-export type { PState, Team, Texture };
-void Group;
+function replayless(controlled: MPlayer | null, replaying: boolean): MPlayer | null { return replaying ? null : controlled; }
+
+void lerp; void PLAYER_COLORS;
+export type { PState };

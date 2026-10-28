@@ -51,3 +51,12 @@ The original brief was cut off mid-way (after the Settings section); sections 7+
 - Root cause of the "too bright" look: PostStack reset `toneMappingExposure` to 1.0 whenever quality was applied, discarding the per-time-of-day exposure. Exposure is now stored in MatchView and re-applied after the post stack (day 0.66, dusk 0.8, night 1.0). Bloom threshold raised to 1.9 (HDR) with strength 0.16 so sunlit lines no longer glow; floodlight heads/lamps and intensity trimmed.
 - Corner and goal-kick cameras previously sat inside the crowd; corners now use a raised far-side view inside the pitch, goal kicks a low view from just behind the goal line.
 - Skip: `Match.canSkip()/skipWaiting()` fast-forward goal celebrations, injury stops and set-piece set-up (players snap to spots); the session wires gamepad ✕, L1+R1 (modA+modB), Enter and a HUD chip, and swallows the pressing button so it doesn't also pass.
+
+## Top-down 2D pivot
+- The 3D renderer (Three.js, skinned rig, post-processing) was replaced by a Canvas 2D top-down renderer behind the same `MatchView` API, so the match engine, HUD, session, replay buffer and input are unchanged. Three.js and `src/animation` were removed (smaller bundle, no WebGL needed).
+- Figures are procedural: shirt sprites are pre-rendered per kit (pattern, shading, collar), legs/boots/arms/head are drawn per frame from a pose solver (`render/players.ts`). Foot targets for dribbling and skill moves come from the ball's position in the player's frame, so touches visibly connect. Animations are smoothed per limb (26-42 Hz) to avoid popping.
+- Depth cues without a 3D camera: small upward parallax for the upper body, soft sun-offset shadows (long at dusk, faint at night), ball lift + scale with height, shadows detaching for jumps and dives.
+- 'Bloom' is gone entirely. Night/dusk use a low-resolution darkness mask with cut-out light pools; the pitch stays lit while stands fall into shadow.
+- Weight: acceleration lowered slightly again (7.6-12.2 m/s², brake x1.5, stronger turn penalty), kick animations have a wind-up and the ball is released at the strike frame (35-55 ms), strong shots/slides add camera punch, shake and 35-50 ms hit-stop.
+- Performance: the pitch grass, stadium ground and crowd sections are baked once and blitted clipped to the visible rectangle; only players, ball, particles and markers are drawn per frame.
+- Camera modes were renamed for the 2D view: Standard, Close, Wide, Player lock, Full pitch (legacy ids still load). Camera 'height' no longer exists.

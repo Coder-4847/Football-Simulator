@@ -20,6 +20,8 @@ export class Hud {
   private radar = h('canvas', { class: 'radar', width: 360, height: 232 }) as HTMLCanvasElement;
   private power = h('div', { class: 'power' }, h('i'));
   private prompts = h('div', { class: 'prompts' });
+  private poss = h('div', { class: 'poss' }, h('i'), h('b'));
+  private pcard = h('div', { class: 'pcard' }, h('div', { class: 'no' }), h('div', { class: 'who' }, h('div', { class: 'nm' }), h('div', { class: 'pos' }), h('div', { class: 'stam' }, h('i'))));
   private replayTag = h('div', { class: 'replay-tag' }, 'REPLAY');
   private fps = h('div', { class: 'fps' });
   private pens = h('div', { class: 'card', style: 'position:absolute;left:50%;top:70px;transform:translateX(-50%);padding:8px 14px;display:none;font-size:14px;letter-spacing:.2em' });
@@ -30,7 +32,7 @@ export class Hud {
   private cardTimers: number[] = [];
 
   constructor(private match: Match, private view: MatchView, private getDevice: () => Device) {
-    this.root.append(this.score, this.feed, this.ticker, this.banner, this.radar, this.power, this.prompts, this.replayTag, this.fps, this.pens);
+    this.root.append(this.score, this.poss, this.pcard, this.feed, this.ticker, this.banner, this.radar, this.power, this.prompts, this.replayTag, this.fps, this.pens);
     this.buildScore();
     const bus = match.bus;
     bus.on('goal', (e) => {
@@ -54,11 +56,15 @@ export class Hud {
   private buildScore(): void {
     const m = this.match;
     clear(this.score);
+    const crest = (k: { primary: string; secondary: string }): HTMLElement => h('i', { class: 'crest', style: `background:linear-gradient(135deg, ${k.primary} 0 55%, ${k.secondary} 55% 100%)` });
     this.score.append(
-      h('div', { class: 'chip', style: `background:${m.teams[0].kit.primary}` }), h('div', { class: 'team', id: 'hud-t0' }, m.teams[0].short),
-      h('div', { class: 'score', id: 'hud-score' }, '0 - 0'), h('div', { class: 'team', id: 'hud-t1' }, m.teams[1].short),
-      h('div', { class: 'chip', style: `background:${m.teams[1].kit.primary}` }), h('div', { class: 'clock', id: 'hud-clock' }, "1'"), h('div', { class: 'extra', id: 'hud-extra' }),
+      h('div', { class: 'team', id: 'hud-t0' }, crest(m.teams[0].kit), h('span', null, m.teams[0].short)),
+      h('div', { class: 'score', id: 'hud-score' }, '0 - 0'),
+      h('div', { class: 'team away', id: 'hud-t1' }, h('span', null, m.teams[1].short), crest(m.teams[1].kit)),
+      h('div', { class: 'timebox' }, h('span', { class: 'clock', id: 'hud-clock' }, "1'"), h('span', { class: 'extra', id: 'hud-extra' })),
     );
+    (this.poss.firstChild as HTMLElement).style.background = m.teams[0].kit.primary;
+    (this.poss.lastChild as HTMLElement).style.background = m.teams[1].kit.primary;
   }
 
   private addFeed(html: string): void {
@@ -95,6 +101,8 @@ export class Hud {
     this.fps.textContent = settings.value.graphics.showFps ? `${Math.round(this.view.fps)} fps` : '';
 
     this.updatePens();
+    this.updatePossession();
+    this.updateCard(humans);
     this.updateRadar();
     this.updateLabels(humans);
     this.updatePower(humans);
@@ -105,6 +113,32 @@ export class Hud {
     rs.bottom = touch ? 'auto' : 'calc(var(--safe-b) + 16px)'; rs.top = touch ? 'calc(var(--safe-t) + 14px)' : 'auto';
     rs.width = touch ? '130px' : '180px'; rs.height = touch ? '84px' : '116px';
     this.feed.style.top = touch ? 'calc(var(--safe-t) + 106px)' : '';
+  }
+
+  private updatePossession(): void {
+    const t = this.match.teams;
+    const a = t[0].possessionTime, b = t[1].possessionTime;
+    const tot = a + b;
+    (this.poss.firstChild as HTMLElement).style.width = `${tot > 1 ? Math.round((a / tot) * 100) : 50}%`;
+    (this.poss.lastChild as HTMLElement).style.width = `${tot > 1 ? Math.round((b / tot) * 100) : 50}%`;
+  }
+
+  private cardFor = '';
+  private updateCard(humans: HumanSlot[]): void {
+    const p = humans[0]?.player;
+    this.pcard.style.display = p && !this.view.replay ? 'flex' : 'none';
+    if (!p) return;
+    const k = p.isGK() ? p.team.gkKit : p.team.kit;
+    const key = p.data.id;
+    if (key !== this.cardFor) {
+      this.cardFor = key;
+      const no = this.pcard.firstChild as HTMLElement; no.textContent = String(p.data.number); no.style.background = k.primary; no.style.color = luminance(k.primary) > 0.55 ? '#0b0f14' : '#fff'; no.style.borderColor = k.secondary;
+      (this.pcard.querySelector('.nm') as HTMLElement).textContent = p.data.name;
+      (this.pcard.querySelector('.pos') as HTMLElement).textContent = `${p.slotPos} · OVR ${p.data.overall}`;
+    }
+    const bar = this.pcard.querySelector('.stam > i') as HTMLElement;
+    bar.style.width = `${Math.round(p.stamina * 100)}%`;
+    bar.style.background = p.stamina < 0.3 ? 'var(--danger)' : p.stamina < 0.55 ? 'var(--warn)' : 'var(--accent)';
   }
 
   private updatePens(): void {
@@ -125,7 +159,11 @@ export class Hud {
     const W = this.radar.width, H = this.radar.height;
     c.clearRect(0, 0, W, H);
     const X = (x: number): number => ((x + HALF_L + 4) / (HALF_L * 2 + 8)) * W, Y = (y: number): number => ((y + HALF_W + 3) / (HALF_W * 2 + 6)) * H;
-    c.strokeStyle = 'rgba(255,255,255,.25)'; c.lineWidth = 2;
+    // grass with mowing stripes
+    for (let i = 0; i < 14; i++) { c.fillStyle = i % 2 ? 'rgba(46,140,70,.55)' : 'rgba(36,120,58,.55)'; c.fillRect((i / 14) * W, 0, W / 14 + 1, H); }
+    // current camera window
+    { const d = this.view.director; const hw = d.viewW / d.scale / 2, hh = d.viewH / d.scale / 2; c.strokeStyle = 'rgba(255,255,255,.55)'; c.lineWidth = 2; c.strokeRect(X(d.x - hw), Y(d.y - hh), X(d.x + hw) - X(d.x - hw), Y(d.y + hh) - Y(d.y - hh)); }
+    c.strokeStyle = 'rgba(255,255,255,.35)'; c.lineWidth = 2;
     c.strokeRect(X(-HALF_L), Y(-HALF_W), X(HALF_L) - X(-HALF_L), Y(HALF_W) - Y(-HALF_W));
     c.beginPath(); c.moveTo(X(0), Y(-HALF_W)); c.lineTo(X(0), Y(HALF_W)); c.stroke();
     c.beginPath(); c.arc(X(0), Y(0), 22, 0, Math.PI * 2); c.stroke();

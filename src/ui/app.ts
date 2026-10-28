@@ -14,6 +14,7 @@ import { STADIUM_STYLES } from '../render/stadium';
 import { DIFFICULTIES } from '../match/types';
 import { qualityFor, defaultQualityName, isMobile } from '../render/quality';
 import { runBenchmark } from '../render/bench';
+import { MenuBackdrop } from './backdrop';
 import type { MatchConfig } from '../match/types';
 import type { Side } from '../match/constants';
 
@@ -29,6 +30,7 @@ export class App {
   private screens = new Map<string, ScreenBuilder>();
   session: GameSession | null = null;
   private loader: HTMLElement | null = null;
+  private backdrop: MenuBackdrop | null = null;
 
   constructor(root: HTMLElement) { this.root = root; }
 
@@ -59,6 +61,7 @@ export class App {
       settings.update((s) => { s.graphics.autoDetected = true; s.graphics.preset = pick; });
     }
     this.hideLoader();
+    this.backdrop = new MenuBackdrop(this.root); this.backdrop.show();
     void this.go('main');
   }
 
@@ -90,11 +93,12 @@ export class App {
   /** Runs a match session on top of the UI. */
   play(match: Match, humans: HumanSpec[], onDone: (r: SessionResult) => void, extra: Partial<ConstructorParameters<typeof GameSession>[1]> = {}): void {
     this.screenEl?.remove(); this.screenEl = null;
+    this.backdrop?.hide();
     this.nav.enabled = false;
     audio.stopMusic();
     this.session = new GameSession(this.root, {
       match, humans, input: this.input, openSettings: (parent) => buildSettings(parent, this.input), ...extra,
-      onExit: (r) => { this.session = null; this.nav.enabled = true; if (settings.value.audio.menuMusic) audio.startMusic('menu'); onDone(r); },
+      onExit: (r) => { this.session = null; this.nav.enabled = true; this.backdrop?.show(); if (settings.value.audio.menuMusic) audio.startMusic('menu'); onDone(r); },
     });
   }
 
@@ -113,15 +117,9 @@ export class App {
 function detectPreset(): 'Low' | 'Medium' | 'High' | 'Ultra' {
   if (isMobile()) return 'Low';
   try {
-    const c = document.createElement('canvas');
-    const gl = c.getContext('webgl2');
-    if (!gl) return 'Low';
-    const ext = gl.getExtension('WEBGL_debug_renderer_info');
-    const r = ext ? String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)) : '';
-    if (/swiftshader|llvmpipe|software|microsoft basic/i.test(r)) return 'Low';
     const cores = navigator.hardwareConcurrency ?? 4, mem = (navigator as unknown as { deviceMemory?: number }).deviceMemory ?? 8;
-    if (/rtx|radeon rx [6-9]|apple m[1-9]|rx 7/i.test(r) && cores >= 8 && mem >= 8) return 'High';
-    if (/intel/i.test(r) && !/iris xe|arc/i.test(r)) return 'Low';
+    if (cores <= 2 || mem <= 2) return 'Low';
+    if (cores >= 8 && mem >= 8) return 'High';
     return defaultQualityName() === 'Low' ? 'Low' : 'Medium';
   } catch { return 'Medium'; }
 }
@@ -152,7 +150,7 @@ function mainMenu(app: App): HTMLElement {
 
 function creditsScreen(app: App): HTMLElement {
   return h('div', { class: 'ui-layer screen' }, h('div', { class: 'row', style: 'justify-content:space-between' }, h('h2', null, 'Credits'), h('button', { class: 'btn', 'data-back': true, onclick: (): void => app.back() }, 'Back')),
-    h('div', { class: 'card', style: 'margin-top:16px;line-height:1.7;max-width:720px' }, 'Football Simulator is built with TypeScript, Vite and Three.js (MIT). All clubs, leagues, nations, players, kits, stadiums and sponsors are fictional and procedurally generated. Audio is generated in the browser; there are no bundled third-party media assets. See CREDITS.md in the repository for licences.'));
+    h('div', { class: 'card', style: 'margin-top:16px;line-height:1.7;max-width:720px' }, 'Football Simulator is built with TypeScript, Vite and Canvas 2D (no runtime dependencies). All clubs, leagues, nations, players, kits, stadiums and sponsors are fictional and procedurally generated. Audio is generated in the browser; there are no bundled third-party media assets. See CREDITS.md in the repository for licences.'));
 }
 
 export interface QuickParams { mode: '1p' | '2p' | 'coop' | 'cpu'; home?: string; away?: string }

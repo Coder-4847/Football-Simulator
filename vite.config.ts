@@ -8,8 +8,7 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     target: 'es2022',
-    chunkSizeWarningLimit: 1200,
-    rolldownOptions: { output: { codeSplitting: { groups: [{ name: 'three', test: /node_modules[\\/]three/ }] } } },
+    chunkSizeWarningLimit: 800,
   },
   worker: { format: 'es' },
   test: { include: ['src/tests/**/*.test.ts'], environment: 'node' },

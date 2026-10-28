@@ -385,8 +385,8 @@ export class Match {
       if (mag > 1) { mx /= mag; my /= mag; }
       let wantVx = mx * cap, wantVy = my * cap;
 
-      let accel = (9 + 5.5 * (a.acceleration / 99)) * (it.jockey ? 1.3 : 1);
-      let brake = accel * 1.6;
+      let accel = (7.6 + 4.6 * (a.acceleration / 99)) * (it.jockey ? 1.3 : 1);
+      let brake = accel * 1.5;
       switch (p.state) {
         case 'slide': { wantVx = 0; wantVy = 0; brake = 4.2; break; }
         case 'down': case 'save': { wantVx = 0; wantVy = 0; brake = 5; break; }
@@ -407,7 +407,7 @@ export class Match {
       if (it.jockey) turnPenalty = 1;
       else if (sp > 2 && mag > 0.1) {
         const dot = (p.vx * mx + p.vy * my) / (sp * Math.max(mag, 1e-6));
-        turnPenalty = lerp(0.6 + 0.3 * (a.agility / 99), 1, clamp01((dot + 0.3) / 1.3));
+        turnPenalty = lerp(0.5 + 0.3 * (a.agility / 99), 1, clamp01((dot + 0.3) / 1.3));
       }
       if (this.cfg.weather !== 'clear' && this.cfg.weather !== 'fog' && p.state === 'normal' && turnPenalty < 0.6 && sp > 6.5 && this.rng.chance(this.cfg.weather === 'snow' ? 0.004 : 0.0025)) { p.setState('stumble', 0.55); p.vx *= 0.5; p.vy *= 0.5; }
       if (p.state !== 'skill') {
@@ -543,7 +543,7 @@ export class Match {
     }
     b.kick(vx, vy, vz, wx, wy, wz, knuckle);
     // the ball is held for a few ms so the striking animation reaches the ball first
-    b.frozen = tag.startsWith('shot:header') ? 0 : tag.startsWith('shot') ? 0.04 : tag === 'throw' ? 0.08 : tag.startsWith('pass') ? 0.025 : 0;
+    b.frozen = tag.startsWith('shot:header') ? 0 : tag.startsWith('shot') ? 0.055 : tag === 'throw' ? 0.09 : tag.startsWith('pass') ? 0.035 : 0;
     this.owner = null;
     this.setTouch(p, true);
     this.lastTouchByFoot = true;

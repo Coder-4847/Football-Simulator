@@ -1,47 +1,51 @@
-import { AmbientLight, Color, DirectionalLight, Mesh, MeshStandardMaterial, PerspectiveCamera, PlaneGeometry, Scene, Vector3, WebGLRenderer, ACESFilmicToneMapping } from 'three';
-import { buildHumanoid } from '../animation/rig';
-import { applyPose, PoseState, type PoseInput } from '../animation/pose';
-import { shirtTexture } from '../render/kits';
+import { FigurePainter, PlayerAnim, type BallLocal, type PlayerStyle, type RenderPlayer } from '../render/players';
 
-/** Debug page: a row of rigs each frozen in a different state to check the procedural animation. */
+const STYLE: PlayerStyle = {
+  primary: '#d9432b', secondary: '#f4f1e8', shorts: '#1c2437', socks: '#d9432b', pattern: 'stripes', keeper: false, skin: '#c68642', hair: '#15110e', hairStyle: 1, beard: 1,
+  boot: '#111827', longSleeves: false, gloves: null, number: 9, build: 1, celeb: 0, role: 'player',
+};
+const GK: PlayerStyle = { ...STYLE, primary: '#f2b705', secondary: '#1f2937', shorts: '#1f2937', socks: '#f2b705', pattern: 'solid', keeper: true, gloves: '#e5e7eb', number: 1 };
+
+interface Cell { label: string; rp: Partial<RenderPlayer>; ball?: BallLocal; gk?: boolean; t?: number[] }
+
+/** Debug page: a contact sheet of the figure in every state (`?debug=pose`). */
 export function poseGrid(canvas: HTMLCanvasElement): void {
-  canvas.style.cssText = 'width:100%;height:100%;display:block';
-  const renderer = new WebGLRenderer({ canvas, antialias: true });
-  renderer.toneMapping = ACESFilmicToneMapping; renderer.toneMappingExposure = 0.8;
-  const scene = new Scene(); scene.background = new Color('#8aa6c8');
-  const sun = new DirectionalLight(0xffffff, 2.5); sun.position.set(5, 10, 8); scene.add(sun, new AmbientLight(0xffffff, 0.7));
-  const ground = new Mesh(new PlaneGeometry(60, 20), new MeshStandardMaterial({ color: '#2f7a2f' })); ground.rotation.x = -Math.PI / 2; scene.add(ground);
-  const states: Array<[string, Partial<PoseInput>]> = [
-    ['idle', {}], ['run', { speed: 5, stride: 0.1 }], ['sprint', { speed: 9, stride: 0.35 }], ['kick-back', { state: 'kick', stateT: 0.05, stateDur: 0.34 }], ['kick-strike', { state: 'kick', stateT: 0.13, stateDur: 0.34 }],
-    ['kick-follow', { state: 'kick', stateT: 0.25, stateDur: 0.34 }], ['tackle', { state: 'tackle', stateT: 0.2, stateDur: 0.5 }], ['slide', { state: 'slide', stateT: 0.4, stateDur: 0.95 }], ['header', { state: 'jump', stateT: 0.35, stateDur: 0.7 }],
-    ['dive', { state: 'dive', stateT: 0.5, stateDur: 1, diveSide: 1, diveHeight: 1.2, isKeeper: true }], ['down', { state: 'down', stateT: 0.6, stateDur: 1.5 }], ['celebrate1', { state: 'celebrate', celebrateId: 1 }], ['celebrate2', { state: 'celebrate', celebrateId: 2 }],
-    ['stepover', { state: 'skill', skillAnim: 'stepOver', skillU: 0.5, stateDur: 0.55 }], ['throw', { state: 'throw', stateT: 0.4, stateDur: 0.6 }], ['keeper', { isKeeper: true }],
+  const cells: Cell[] = [
+    { label: 'idle', rp: { speed: 0 } }, { label: 'jog', rp: { speed: 4, stride: 0.2 } }, { label: 'sprint', rp: { speed: 8, stride: 0.45 } }, { label: 'carry', rp: { speed: 5, stride: 0.1, hasBall: true }, ball: { x: 0.55, y: 0.1, z: 0 } },
+    { label: 'pass', rp: { state: 'kick', stateDur: 0.34, ballSide: 'R', kickPower: 0.4 }, t: [0.15, 0.4, 0.55, 0.85] }, { label: 'shot', rp: { state: 'kick', stateDur: 0.34, ballSide: 'R', kickPower: 1 }, t: [0.12, 0.4, 0.55, 0.85] },
+    { label: 'tackle', rp: { state: 'tackle', stateDur: 0.5 }, t: [0.2, 0.4, 0.7, 0.95] }, { label: 'slide', rp: { state: 'slide', stateDur: 0.95 }, t: [0.1, 0.3, 0.5, 0.9] },
+    { label: 'header', rp: { state: 'jump', stateDur: 0.7 }, t: [0.2, 0.5, 0.7, 0.9] }, { label: 'down', rp: { state: 'down', stateDur: 1.5 }, t: [0.2, 0.5, 0.7, 0.9] },
+    { label: 'stumble', rp: { state: 'stumble', stateDur: 0.5 }, t: [0.1, 0.3, 0.5, 0.7] }, { label: 'throw-in', rp: { state: 'throw', stateDur: 0.6 }, t: [0.1, 0.4, 0.6, 0.9] },
+    { label: 'step over', rp: { state: 'skill', stateDur: 0.55, skillAnim: 'stepOver' }, ball: { x: 0.5, y: 0.05, z: 0 }, t: [0.15, 0.4, 0.6, 0.85] }, { label: 'drag back', rp: { state: 'skill', stateDur: 0.5, skillAnim: 'dragBack' }, ball: { x: 0.5, y: 0.1, z: 0 }, t: [0.2, 0.45, 0.7, 0.9] },
+    { label: 'flick', rp: { state: 'skill', stateDur: 0.6, skillAnim: 'flick' }, ball: { x: 0.5, y: 0, z: 0 }, t: [0.2, 0.4, 0.6, 0.9] }, { label: 'ball roll', rp: { state: 'skill', stateDur: 0.45, skillAnim: 'roll' }, ball: { x: 0.45, y: 0.1, z: 0 }, t: [0.1, 0.4, 0.7, 0.9] },
+    { label: 'feint', rp: { state: 'skill', stateDur: 0.4, skillAnim: 'feint' }, ball: { x: 0.5, y: 0.1, z: 0 }, t: [0.15, 0.4, 0.7, 0.9] }, { label: 'celebrate', rp: { state: 'celebrate', stateDur: 3 }, t: [0.2, 0.7, 1.2, 1.9] },
+    { label: 'gk dive', rp: { state: 'dive', stateDur: 1, diveSide: 1, diveH: 1 }, gk: true, t: [0.1, 0.35, 0.6, 0.9] }, { label: 'gk catch', rp: { state: 'save', stateDur: 0.5 }, gk: true, t: [0.1, 0.25, 0.4, 0.5] },
   ];
-  const base: PoseInput = {
-    state: 'normal', stateName: '', stateT: 0, stateDur: 0, speed: 0, maxSpeed: 9, stride: 0, turn: 0, accel: 0, hasBall: false, ballSide: 'R', dominantFoot: 'R', weakFoot: 4, isKeeper: false, tired: 0, ballLocal: null,
-    skillAnim: null, skillU: 0, skillSide: 1, diveSide: 1, diveHeight: 1, celebrateId: 0, celebrateT: 1, role: 'player', armUp: 0, flag: 0, seed: 1, time: 1, kickPower: 0.6,
-  };
-  const rigs = states.map(([, over], i) => {
-    const rig = buildHumanoid({ look: { skin: 1, hairStyle: 1, hairColor: 1, beard: 0, bootColor: 0, tattoo: false, sleeves: false }, bodyType: 'normal', heightCm: 180, shirt: shirtTexture({ primary: '#c0392b', secondary: '#f1c40f', pattern: 'stripes' }), shorts: '#111827', socks: '#c0392b', isKeeper: !!(over as { isKeeper?: boolean }).isKeeper, shirtColor: '#c0392b', longSleeves: false, number: i + 1, name: 'TEST' });
-    rig.root.position.set((i - states.length / 2) * 2.2, 0, 0); rig.root.rotation.y = 0; scene.add(rig.root);
-    return { rig, ps: new PoseState(), over };
+  const painter = new FigurePainter();
+  const COLS = 4, SUB = 4, S = 74;
+  const cw = 4 * 170;
+  canvas.width = cw / 2 * 2 - 0; canvas.height = Math.ceil(cells.length / 2) * 170;
+  const ctx = canvas.getContext('2d')!;
+  canvas.style.cssText = 'display:block;background:#1d6b2c';
+  ctx.fillStyle = '#2b8a3e'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  void COLS; void SUB;
+  cells.forEach((c, idx) => {
+    const col = idx % 2, row = Math.floor(idx / 2);
+    const ox = col * 2 * 170, oy = row * 170;
+    ctx.fillStyle = (row + col) % 2 ? '#2d8d42' : '#2a8540'; ctx.fillRect(ox, oy, 340, 170);
+    ctx.fillStyle = '#fff'; ctx.font = '12px system-ui'; ctx.fillText(c.label, ox + 6, oy + 14);
+    const times = c.t ?? [0, 0.25, 0.5, 0.75];
+    times.forEach((tt, k) => {
+      const anim = new PlayerAnim(); anim.seed = 12;
+      const rp: RenderPlayer = {
+        visible: true, x: 0, z: 0, face: 0, state: 'normal', stateName: '', stateT: tt * (c.rp.stateDur ?? 1), stateDur: 1, speed: 0, stride: 0.25 * k, hasBall: false, ballSide: 'R', dominantFoot: 'R', weakFoot: 3, tired: 0,
+        keeper: !!c.gk, skillAnim: null, skillU: tt, skillSide: 1, diveSide: 1, diveH: 0, celebT: tt, kickPower: 0.7, ...c.rp,
+      };
+      for (let i = 0; i < 30; i++) painter.update(anim, rp, c.ball ?? null, null, 1 / 60, tt + i / 60, 'player');
+      const cx = ox + 45 + k * 80, cy = oy + 100;
+      if (c.ball) { ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(cx + c.ball.x * S, cy + c.ball.y * S, 5, 0, 6.3); ctx.fill(); }
+      painter.drawLegs(ctx, anim, c.gk ? GK : STYLE, rp, cx, cy, S);
+      painter.drawBody(ctx, anim, c.gk ? GK : STYLE, rp, cx, cy, S, true);
+    });
   });
-  const cam = new PerspectiveCamera(40, 2, 0.1, 100); cam.position.set(0, 3.2, 14); cam.lookAt(new Vector3(0, 1, 0));
-  const focus = new URLSearchParams(location.search).get('focus');
-  if (focus !== null) { const i = Number(focus); cam.position.set((i - states.length / 2) * 2.2 + 0.0, 1.3, 4.2); cam.lookAt((i - states.length / 2) * 2.2, 0.9, 0); }
-  const resize = (): void => { const w = canvas.clientWidth || window.innerWidth, h = canvas.clientHeight || window.innerHeight; renderer.setSize(w, h, false); cam.aspect = w / h; cam.updateProjectionMatrix(); };
-  resize(); window.addEventListener('resize', resize);
-  const ball = new Vector3(0, 0.11, 0.5);
-  const tick = (): void => {
-    for (const { rig, ps, over } of rigs) {
-      const inp = { ...base, ...over };
-      for (let k = 0; k < 30; k++) applyPose(rig, inp, ps, 1 / 30, new URLSearchParams(location.search).has('noik') ? null : new Vector3(rig.root.position.x + 0.3, 0.11, 0.9));
-      const ud = rig.root.userData as { pitch?: number; roll?: number; dy?: number };
-      rig.root.rotation.order = 'YXZ'; rig.root.position.y = ud.dy ?? 0; rig.root.rotation.set(ud.pitch ?? 0, 0.5, ud.roll ?? 0);
-    }
-    renderer.render(scene, cam);
-  };
-  tick();
-  (window as unknown as { __pose: () => void; __rigs: unknown }).__pose = tick;
-  (window as unknown as { __rigs: unknown }).__rigs = rigs;
 }
