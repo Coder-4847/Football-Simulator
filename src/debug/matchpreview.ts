@@ -19,7 +19,7 @@ export function matchPreview(canvas: HTMLCanvasElement, params: URLSearchParams)
   match.startMatch();
   const warm = Number(params.get('warm') ?? 0);
   for (let i = 0; i < warm * 60; i++) { if (match.phase === 'halftime') match.startNextPeriod(); match.step(1 / 60); }
-  const loop = new GameLoop({ update: (dt) => { if (match.phase === 'halftime') match.startNextPeriod(); match.step(dt); }, render: (al, dt) => view.update(al, dt, null) });
+  const loop = new GameLoop({ update: (dt) => { if (match.phase === 'halftime') match.startNextPeriod(); match.step(dt); }, render: (al, dt) => view.update(al, dt) });
   loop.start();
   window.addEventListener('resize', () => view.resize());
   (window as unknown as { __fs: unknown }).__fs = { match, view, loop };

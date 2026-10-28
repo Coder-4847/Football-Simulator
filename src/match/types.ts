@@ -1,6 +1,5 @@
 import type { MPlayer } from './entities';
 import type { Side } from './constants';
-import type { FrameInput } from '../input/actions';
 
 export const DIFFICULTIES = ['Beginner', 'Amateur', 'Semi-Pro', 'Professional', 'World Class', 'Legendary', 'Ultimate'] as const;
 export type Difficulty = (typeof DIFFICULTIES)[number];
@@ -57,12 +56,6 @@ export interface MatchConfig {
   subWindows: number;
   /** dynamic difficulty adapts AI quality a bit to the scoreline */
   dynamicDifficulty: boolean;
-  /** 0..1 assistance for human passing/shooting/crossing/keeper */
-  assist: { pass: number; shot: number; cross: number; keeper: number; aim: number; autoSwitch: boolean };
-  /** skill-move loadout (global) and per-player overrides */
-  loadout: string[];
-  loadoutAlt: string[];
-  loadoutOverrides: Record<string, string[]>;
   /** headless: no pauses, auto-handle UI prompts */
   headless: boolean;
   /** match speed multiplier (informational; loop applies it) */
@@ -73,8 +66,7 @@ export const defaultMatchConfig = (): MatchConfig => ({
   seed: 'match', halfLength: 5, difficulty: 'Professional', weather: 'clear', timeOfDay: 'day', stadiumStyle: 0,
   refStrictness: 0.5, offside: true, foulFrequency: 1, injuries: true, fatigue: true, knockout: false, extraTime: true, penalties: true,
   var: false, maxSubs: 5, subWindows: 3, dynamicDifficulty: false,
-  assist: { pass: 0.85, shot: 0.75, cross: 0.8, keeper: 0.6, aim: 0.65, autoSwitch: true },
-  loadout: ['body-feint', 'step-over', 'flip-flap', 'spin-turn'], loadoutAlt: ['ball-roll', 'drag-back', 'hop-over', 'fake-shot'], loadoutOverrides: {}, headless: false,
+  headless: false,
 });
 
 export type Phase =
@@ -125,20 +117,3 @@ export interface MatchEvents extends Record<string, unknown> {
   keeperCatch: { keeper: MPlayer };
 }
 
-/** One human controller on a team. */
-export interface HumanSlot {
-  side: Side;
-  /** the player currently controlled */
-  player: MPlayer | null;
-  input: FrameInput;
-  /** seconds since the last manual switch (blocks auto-switch briefly) */
-  manualSwitchT: number;
-  /** is this slot controlling the goalkeeper only? */
-  keeperOnly: boolean;
-  /** buffered shot/pass for first-time actions */
-  queued: { btn: string; t: number; hold: number; mods: string[] } | null;
-  /** career 'be a pro' mode: this human only ever controls the player with this id */
-  lockId?: string;
-  /** shot power charging */
-  charge: { btn: string; t: number } | null;
-}

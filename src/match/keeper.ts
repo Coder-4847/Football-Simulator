@@ -227,7 +227,6 @@ export function updateKeepers(m: Match, dt: number): void {
         const a = gk.data.attrs;
         const penalty = m.penaltyKick !== null && m.time - m.penaltyKick.t < 1;
         let react = m.diff.gkReaction * (1.35 - a.gkReflexes / 180);
-        if (gk.human >= 0) react = 0.12 + (1 - m.cfg.assist.keeper) * 0.18;
         let py = pred.y;
         if (penalty) {
           // the keeper commits early and guesses a side
@@ -246,20 +245,11 @@ export function updateKeepers(m: Match, dt: number): void {
     const plan = gs.plan;
     if (plan && !plan.done) {
       if (m.time >= plan.startAt && gk.state === 'normal') {
-        const humanControlled = gk.human >= 0;
-        let allow = true;
-        if (humanControlled) allow = gs.diveReq !== 0 || m.rng.chance(m.cfg.assist.keeper * 1.0);
-        if (allow) {
+        {
           const dy = plan.y - gk.y;
           const tLeft = Math.max(0.12, plan.tCross - m.time);
           const need = Math.abs(dy);
           const diving = need > 1.3 || plan.z > 1.9 || plan.z < 0.55;
-          if (humanControlled && gs.diveReq !== 0) {
-            // manual: dive to the requested side regardless; assisted target if it matches
-            const wantSign = gs.diveReq * (m.teams[gk.side].dir > 0 ? 1 : -1) * 1; // left/right relative to facing
-            const targetY = Math.sign(plan.y) === Math.sign(wantSign) || need < 1 ? plan.y : wantSign * HALF_GOAL * 0.9;
-            plan.y = targetY;
-          }
           if (diving) {
             plan.dive = true;
             gk.setState('dive', clamp(tLeft + 0.5, 0.7, 1.3), 'dive');

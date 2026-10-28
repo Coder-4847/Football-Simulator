@@ -9,10 +9,8 @@ import {
   BALL_R, GOAL_H, HALF_GOAL, HALF_L, HALF_W, PITCH_L, PITCH_W, PLAYER_R, other, type Side,
 } from './constants';
 import { MPlayer, Team, newIntent, type TeamSetup } from './entities';
-import { defaultMatchConfig, DIFF_PARAMS, type DiffParams, type HumanSlot, type MatchConfig, type MatchEvents, type PassKind, type Phase } from './types';
-import { emptyFrame } from '../input/actions';
+import { defaultMatchConfig, DIFF_PARAMS, type DiffParams, type MatchConfig, type MatchEvents, type PassKind, type Phase } from './types';
 import { updateTeamAI, updateHalfBreakAI } from './ai';
-import { updateHumans } from './human';
 import { updateKeepers } from './keeper';
 import {
   adjudicateOffsideTouch, callFoul, checkAdvantage, handleOutOfPlay, resolveTackleIntent, updateSetPiece, startSetPiece, type SetPiece, updateRulesTimers,
@@ -41,7 +39,6 @@ export class Match {
   readonly ball = new Ball();
   readonly teams: [Team, Team];
   readonly diff: DiffParams;
-  humans: HumanSlot[] = [];
   replay = new ReplayBuffer();
 
   time = 0;
@@ -117,7 +114,7 @@ export class Match {
     if (this.phase === 'injury') return this.phaseT > 0.5;
     if (this.phase === 'setpiece' && this.sp) {
       if (this.sp.phase === 'setup') return true;
-      return this.sp.phase === 'ready' && !!this.sp.taker && this.sp.taker.human < 0 && this.sp.t - this.sp.readyAt < 0.9;
+      return this.sp.phase === 'ready' && !!this.sp.taker && this.sp.t - this.sp.readyAt < 0.9;
     }
     return false;
   }
@@ -281,9 +278,8 @@ export class Match {
 
   // ---------- main step ----------
 
-  step(dt: number, frames?: Array<ReturnType<typeof emptyFrame>>): void {
+  step(dt: number): void {
     this.tick++;
-    if (frames) for (let i = 0; i < this.humans.length; i++) { const h = this.humans[i]; if (h && frames[i]) h.input = frames[i]!; }
     this.savePrev();
     this.time += dt;
     this.phaseT += dt;
@@ -292,7 +288,6 @@ export class Match {
     if (this.phase === 'fulltime') { this.stepMovement(dt); this.ball.step(dt / 2); this.ball.step(dt / 2); this.animateOfficials(dt); return; }
 
     // intents
-    updateHumans(this, dt);
     for (const t of this.teams) updateTeamAI(this, t, dt);
     if (this.phase === 'halftime' || this.phase === 'extratimeBreak') for (const t of this.teams) updateHalfBreakAI(this, t);
 
@@ -370,17 +365,17 @@ export class Match {
       if (it.precise) cap = Math.min(cap, full * 0.42);
       if (hasBall) cap *= 0.94 + 0.05 * (a.dribbling / 100);
       let mx = it.mx, my = it.my;
-      if (p.human < 0 && this.kickoffGuard && this.time < this.kickoffGuard.until && p.side === this.kickoffGuard.side) {
+      if (this.kickoffGuard && this.time < this.kickoffGuard.until && p.side === this.kickoffGuard.side) {
         // hold the line: no forward movement across the halfway line
         const dd = this.teams[p.side].dir;
         if (this.depth(p.side, p.x) > -1.5 && mx * dd > 0) { mx = 0; if (!my) my = 0; }
         it.sprint = false;
       }
-      if (p.human < 0) {
-        // AI intents are low-pass filtered so direction flips ease in instead of snapping
+      {
+        // intents are low-pass filtered so direction flips ease in instead of snapping
         const f = 1 - Math.exp(-11 * dt);
         p.smx += (mx - p.smx) * f; p.smy += (my - p.smy) * f; mx = p.smx; my = p.smy;
-      } else { p.smx = mx; p.smy = my; }
+      }
       const mag = Math.hypot(mx, my);
       if (mag > 1) { mx /= mag; my /= mag; }
       let wantVx = mx * cap, wantVy = my * cap;
@@ -641,16 +636,14 @@ export class Match {
       if (p.isGK() && this.ballInGoalKeeperHands) continue;
       const dx = b.x - p.x, dy = b.y - p.y;
       const d = Math.hypot(dx, dy);
-      // controlled players get a generous reach (scaled by the pass assist) so receiving and winning loose balls feels fair
-      const help = p.human >= 0 ? 0.35 + 0.55 * this.cfg.assist.pass : 0;
-      const lowReach = (p.state === 'slide' ? 1.5 : 0.68) + help;
-      let reach = b.z < 0.4 ? lowReach : b.z < 1.2 ? 0.55 + help * 0.6 : 0;
+      const lowReach = p.state === 'slide' ? 1.5 : 0.68;
+      let reach = b.z < 0.4 ? lowReach : b.z < 1.2 ? 0.55 : 0;
       if (p.isGK()) reach = Math.max(reach, 0);
       if (reach <= 0 || d > reach) continue;
       // skill-dependent contest score
       const a = p.data.attrs;
       const score = (1 - d / reach) * 0.5 + (a.reactions + a.ballControl) / 400 + this.rng.next() * 0.3
-        + (this.passInfo && this.passInfo.receiver === p ? 0.25 : 0) + (p.human >= 0 ? 0.3 : 0)
+        + (this.passInfo && this.passInfo.receiver === p ? 0.25 : 0)
         + (this.lastTouch && this.lastTouch.side === p.side ? 0 : (a.interceptions / 400));
       if (score > bestScore) { bestScore = score; best = p; }
     }
@@ -660,7 +653,7 @@ export class Match {
     const a = p.data.attrs;
     const relSpeed = Math.hypot(b.vx - p.vx, b.vy - p.vy) + Math.abs(b.vz) * 0.3;
     const isOpp = this.lastTouch !== null && this.lastTouch.side !== p.side;
-    const limit = 7 + 15 * (a.ballControl / 100) + (isOpp ? 0 : 3) + (p.intent.precise ? 2 : 0) + (p.human >= 0 ? 8 : 0);
+    const limit = 7 + 15 * (a.ballControl / 100) + (isOpp ? 0 : 3) + (p.intent.precise ? 2 : 0);
     // speculative lunge/slide reach from fast ball: block rather than control
     if (relSpeed <= limit) {
       this.takeControl(p, relSpeed, limit);
@@ -698,7 +691,7 @@ export class Match {
     const a = p.data.attrs;
     // first-touch quality: heavy touch when the pass was hard or the player is poor
     const q = clamp01(1 - relSpeed / (limit + 4)) * 0.6 + (a.ballControl / 100) * 0.5 - pressureLocal(this, p) * 0.25;
-    const heavy = this.rng.next() > q + (p.human >= 0 ? 0.7 : 0.35) && relSpeed > (p.human >= 0 ? 10 : 6);
+    const heavy = this.rng.next() > q + 0.35 && relSpeed > 6;
     const prev = this.lastTouch;
     const wasOpp = prev !== null && prev.side !== p.side;
     this.setTouch(p);
@@ -793,7 +786,6 @@ export class Match {
     if (this.period === 1) {
       this.phase = 'halftime'; this.phaseT = 0; this.halfScore = [...score];
       this.bus.emit('halfTime', { score });
-      for (const h of this.humans) h.player = null;
     } else if (this.period === 2) {
       if (this.cfg.knockout && score[0] === score[1]) {
         if (this.cfg.extraTime) { this.phase = 'extratimeBreak'; this.phaseT = 0; this.bus.emit('extraTime', {}); }
@@ -993,7 +985,7 @@ export class Match {
     t.bench.splice(idx, 1);
     const np = new MPlayer(on, t, off.slot, off.slotPos, off.role);
     np.x = np.px = off.x; np.y = np.py = off.y; np.face = np.pface = off.face;
-    np.anchorX = off.anchorX; np.anchorY = off.anchorY; np.human = off.human; np.stamina = 1;
+    np.anchorX = off.anchorX; np.anchorY = off.anchorY; np.stamina = 1;
     np.yellowCards = 0;
     const i = t.players.indexOf(off);
     t.players[i] = np;
@@ -1007,9 +999,6 @@ export class Match {
     t.subs.push({ minute: this.minute(), off: off.data.name, on: on.name, side, injury });
     this.removedPlayers.push(off);
     this.refreshAll();
-    for (const h of this.humans) {
-      if (h.player === off) { h.player = np; np.human = this.humans.indexOf(h); }
-    }
     if (this.owner === off) this.owner = null;
     this.stoppageAcc += 30;
     this.bus.emit('sub', { side, off, on: on.name, injury });
@@ -1095,14 +1084,10 @@ export class Match {
 
   raiseFlag(): void { this.flagT = 2.5; }
 
-  // ---------- human management ----------
+  // ---------- management ----------
 
-  addHuman(side: Side, keeperOnly = false): number {
-    const h: HumanSlot = { side, player: null, input: emptyFrame(), manualSwitchT: 10, keeperOnly, queued: null, charge: null };
-    this.humans.push(h);
-    this.teams[side].controlled.push(this.humans.length - 1);
-    return this.humans.length - 1;
-  }
+  /** The user manages this team: AI substitutions are left to the manager and injuries ask for a decision. */
+  manage(side: Side): void { if (!this.teams[side].controlled.includes(0)) this.teams[side].controlled.push(0); }
 
   /** Total of both teams' goals etc for UI. */
   get score(): [number, number] { return [this.teams[0].score, this.teams[1].score]; }

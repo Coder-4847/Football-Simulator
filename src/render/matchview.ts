@@ -130,7 +130,7 @@ export class MatchView {
       primary: kit.primary, secondary: kit.secondary, shorts: kit.shorts, socks: kit.socks, pattern: kit.pattern, keeper: k,
       skin: SKIN_TONES[look.skin % SKIN_TONES.length]!, hair: HAIR_COLORS[look.hairColor % HAIR_COLORS.length]!, hairStyle: look.hairStyle, beard: look.beard,
       boot: k ? '#0f172a' : BOOT_COLORS[look.bootColor % BOOT_COLORS.length]!, longSleeves: look.sleeves || k, gloves: k ? '#e5e7eb' : null,
-      number: p.data.number, build: clamp(p.data.heightCm / 180, 0.92, 1.08), celeb: settings.value.gameplay.celebrations[p.data.id] ?? Math.abs(hash(p.data.id)) % 6, role: 'player',
+      number: p.data.number, build: clamp(p.data.heightCm / 180, 0.92, 1.08), celeb: Math.abs(hash(p.data.id)) % 6, role: 'player',
     };
     const anim = new PlayerAnim();
     anim.seed = (Math.abs(hash(p.data.id)) % 1000) / 10;
@@ -223,7 +223,7 @@ export class MatchView {
 
   // ---------------------------------------------------------------- frame
 
-  update(alpha: number, dt: number, controlled: MPlayer | null): void {
+  update(alpha: number, dt: number): void {
     dt = Math.max(0, Math.min(dt, 0.1));
     this.time += dt; this.frameCount++;
     if (dt > 0) this.fpsSmooth += (1 / dt - this.fpsSmooth) * 0.05;
@@ -268,8 +268,7 @@ export class MatchView {
     }
 
     // ---- camera
-    const fp = controlled ? { x: controlled.px + (controlled.x - controlled.px) * alpha, y: controlled.py + (controlled.y - controlled.py) * alpha } : null;
-    this.director.update(dt, m, { x: bx, y: by }, replayless(controlled, !!rf), fp);
+    this.director.update(dt, m, { x: bx, y: by });
 
     // ---- simulate fx
     this.particles.update(dt); this.weather.update(dt); this.pitch.update(dt);
@@ -284,7 +283,7 @@ export class MatchView {
     this.popups = this.popups.filter((pp) => pp.t < 1.8);
     this.updateBallOrientation(bwx, bwy, bwz, dt);
 
-    this.render(players, bx, by, bz, rf, dt, controlled);
+    this.render(players, bx, by, bz, rf, dt);
     this.onFrame?.(dt);
   }
 
@@ -325,7 +324,7 @@ export class MatchView {
 
   // ---------------------------------------------------------------- drawing
 
-  private render(players: Array<{ pv: PlayerView; rp: RenderPlayer; p: MPlayer }>, bx: number, by: number, bz: number, rf: Float32Array | null, dt: number, controlled: MPlayer | null): void {
+  private render(players: Array<{ pv: PlayerView; rp: RenderPlayer; p: MPlayer }>, bx: number, by: number, bz: number, rf: Float32Array | null, dt: number): void {
     const ctx = this.ctx, d = this.director, k = this.pixelRatio, S = d.scale;
     const W = this.cssW, H = this.cssH;
     const night = this.tod === 'night';
@@ -358,7 +357,7 @@ export class MatchView {
     this.drawGroundMarkers(ctx, S, rf);
 
     // ---- shadows
-    const PS = clamp(1.95 * Math.pow(20 / Math.max(S, 6), 0.4), 1.6, 2.7);
+    const PS = clamp(2.4 * Math.pow(20 / Math.max(S, 6), 0.45), 2.0, 3.3);
     this.drawShadows(ctx, players, bx, by, bz, PS);
 
     // ---- players: update poses, then draw in painter's order
@@ -404,8 +403,6 @@ export class MatchView {
     for (const e of drawList) e.pv.painter.drawBody(ctx, e.pv.anim, e.pv.style, e.rp, e.pv.sx, e.pv.sy, u, showNum);
     if (highBall) this.drawBall(ctx, bx, by, bz, S, dt);
 
-    // controlled-player arrows
-    this.drawSelectionArrows(ctx, u, S);
 
     // ---- world fx
     worldTransform();
@@ -432,7 +429,6 @@ export class MatchView {
     if (this.replay) this.drawReplayFrame(ctx, W, H);
     if (this.letterbox > 0.01) { ctx.fillStyle = '#000'; const lb = this.letterbox * H * 0.1; ctx.fillRect(0, 0, W, lb); ctx.fillRect(0, H - lb, W, lb); }
     if (this.fade > 0.01) { ctx.fillStyle = `rgba(0,0,0,${this.fade})`; ctx.fillRect(0, 0, W, H); }
-    void controlled;
   }
 
   private drawBoardsNow(ctx: CanvasRenderingContext2D, night: boolean): void {
@@ -554,7 +550,7 @@ export class MatchView {
     const z = bz + skillLift;
     const lift = Math.max(0, z) * 0.5;
     const sx = d.toScreenX(bx), sy = d.toScreenY(by) - lift * S;
-    const r = Math.max(1.5, R * S * (1 + clamp(z, 0, 12) * 0.05));
+    const r = Math.max(3.4, R * S * (1 + clamp(z, 0, 12) * 0.05));
     // trail
     const speed = Math.hypot(bx - this.lastBall.x, by - this.lastBall.y) / Math.max(dt, 1e-3);
     this.lastBall.x = bx; this.lastBall.y = by; this.lastBall.z = bz;
@@ -603,27 +599,6 @@ export class MatchView {
   private drawGroundMarkers(ctx: CanvasRenderingContext2D, S: number, rf: Float32Array | null): void {
     const m = this.match;
     const lw = Math.max(0.05, 1.5 / S);
-    // controlled player ring
-    m.humans.forEach((h, i) => {
-      const p = h.player;
-      if (!p || !p.active() || this.replay) return;
-      const col = PLAYER_COLORS[i % 4]!;
-      const x = p.px + (p.x - p.px) * 0.5, y = p.py + (p.y - p.py) * 0.5;
-      ctx.strokeStyle = col; ctx.lineWidth = lw * 1.5; ctx.globalAlpha = 0.75;
-      ctx.beginPath(); ctx.ellipse(x, y, 0.82, 0.74, 0, 0, Math.PI * 2); ctx.stroke();
-      ctx.globalAlpha = 0.14; ctx.fillStyle = col; ctx.fill(); ctx.globalAlpha = 1;
-      // charge / aim arrow
-      this.drawAim(ctx, h, p, S, col);
-    });
-    // pass target
-    const pi = m.passInfo;
-    const hs = m.humans[0];
-    if (pi && pi.receiver && !pi.completed && hs && hs.side === pi.passer.side && m.time - pi.time < 2.5 && !this.replay) {
-      const r = pi.receiver;
-      const pulse = 1 + Math.sin(this.time * 12) * 0.08;
-      ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = lw * 1.4; ctx.setLineDash([0.25, 0.2]);
-      ctx.beginPath(); ctx.arc(r.x, r.y, 0.95 * pulse, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
-    }
     // set-piece guides
     const sp = m.sp;
     if (sp && sp.phase !== 'done' && !this.replay) {
@@ -632,46 +607,8 @@ export class MatchView {
         ctx.strokeStyle = 'rgba(255,255,255,0.4)'; ctx.setLineDash([0.4, 0.4]); ctx.lineWidth = lw;
         ctx.beginPath(); ctx.arc(sp.x, sp.y, 9.15, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
       }
-      if (sp.phase === 'ready' && taker && taker.human >= 0 && ['freeKick', 'indirectFreeKick', 'penalty'].includes(sp.type)) {
-        const dir = m.teams[sp.side].dir, gx = dir * HALF_L;
-        const ty = dir * sp.aimY * HALF_GOAL * 0.94;
-        ctx.strokeStyle = 'rgba(255,255,255,0.65)'; ctx.setLineDash([0.5, 0.35]); ctx.lineWidth = lw * 1.2;
-        ctx.beginPath(); ctx.moveTo(sp.x, sp.y); ctx.lineTo(gx, ty); ctx.stroke(); ctx.setLineDash([]);
-        // reticle on the goal line; the ring height shows how high the shot will go
-        const hgt = sp.aimH;
-        ctx.strokeStyle = '#ffd23f'; ctx.lineWidth = lw * 1.6;
-        ctx.beginPath(); ctx.arc(gx + dir * 0.3, ty, 0.42, 0, Math.PI * 2); ctx.stroke();
-        ctx.fillStyle = '#ffd23f'; ctx.fillRect(gx + dir * 1.0, ty - 0.45, 0.14, 0.9); ctx.fillStyle = '#05080f'; ctx.fillRect(gx + dir * 1.0, ty - 0.45, 0.14, 0.9 * (1 - hgt));
-        // curve hint
-        if (Math.abs(sp.curve) > 0.05) { ctx.strokeStyle = 'rgba(120,200,255,0.8)'; ctx.beginPath(); ctx.moveTo(sp.x, sp.y); ctx.quadraticCurveTo((sp.x + gx) / 2, (sp.y + ty) / 2 + sp.curve * 6, gx, ty); ctx.stroke(); }
-      }
-      if (sp.phase === 'ready' && taker && taker.human >= 0 && sp.type === 'corner') {
-        const dir = m.teams[sp.side].dir, gx = dir * HALF_L;
-        ctx.strokeStyle = sp.cornerStyle === 'in' ? 'rgba(255,210,63,0.85)' : 'rgba(120,200,255,0.85)'; ctx.lineWidth = lw * 1.6; ctx.setLineDash([0.6, 0.4]);
-        ctx.beginPath(); ctx.moveTo(sp.x, sp.y); ctx.quadraticCurveTo(gx - dir * 6, sp.y * 0.2 + (sp.cornerStyle === 'in' ? 5 : -5) * Math.sign(sp.y), gx - dir * 9, 0); ctx.stroke(); ctx.setLineDash([]);
-        ctx.fillStyle = ctx.strokeStyle; ctx.beginPath(); ctx.arc(gx - dir * 9, 0, 0.45, 0, Math.PI * 2); ctx.fill();
-      }
     }
     if (rf) this.drawOffsideLine(ctx, rf, lw);
-  }
-
-  private drawAim(ctx: CanvasRenderingContext2D, h: import('../match/types').HumanSlot, p: MPlayer, S: number, col: string): void {
-    const inp = h.input;
-    let held = 0; let kind: 'b1' | 'b2' | 'b3' | 'b4' | null = null;
-    for (const b of ['b1', 'b2', 'b3', 'b4'] as const) if (inp.down[b] && inp.held[b] > 0.05 && inp.held[b] > held) { held = inp.held[b]; kind = b; }
-    if (!kind || this.match.owner !== p) return;
-    const power = clamp01(held / 0.7);
-    const goalAng = Math.atan2(-p.y * 0.6, this.match.teams[p.side].dir * HALF_L - p.x);
-    const ang = Math.hypot(inp.mx, inp.my) > 0.25 ? Math.atan2(inp.my, inp.mx) : kind === 'b4' ? goalAng : p.face;
-    const color = kind === 'b4' ? '#ff7a45' : kind === 'b3' ? '#7cc4ff' : kind === 'b2' ? '#ffd23f' : '#ffffff';
-    const len = 2 + power * (kind === 'b1' ? 11 : 14);
-    const x = p.x, y = p.y;
-    const lw = Math.max(0.1, 3 / S) + power * 0.18;
-    ctx.strokeStyle = color; ctx.globalAlpha = 0.85; ctx.lineWidth = lw; ctx.lineCap = 'round';
-    ctx.beginPath(); ctx.moveTo(x + Math.cos(ang) * 1.1, y + Math.sin(ang) * 1.1); ctx.lineTo(x + Math.cos(ang) * len, y + Math.sin(ang) * len); ctx.stroke();
-    const hx = x + Math.cos(ang) * len, hy = y + Math.sin(ang) * len;
-    ctx.fillStyle = color; ctx.beginPath(); ctx.moveTo(hx + Math.cos(ang) * 0.6, hy + Math.sin(ang) * 0.6); ctx.lineTo(hx + Math.cos(ang + 2.5) * 0.55, hy + Math.sin(ang + 2.5) * 0.55); ctx.lineTo(hx + Math.cos(ang - 2.5) * 0.55, hy + Math.sin(ang - 2.5) * 0.55); ctx.closePath(); ctx.fill();
-    ctx.globalAlpha = 1; void col;
   }
 
   private drawOffsideLine(ctx: CanvasRenderingContext2D, rf: Float32Array, lw: number): void {
@@ -684,22 +621,6 @@ export class MatchView {
     best.sort((a, b) => b - a);
     ctx.strokeStyle = 'rgba(255,210,63,0.6)'; ctx.lineWidth = lw * 1.5; ctx.setLineDash([0.8, 0.6]);
     ctx.beginPath(); ctx.moveTo(best[1]! * sgn, -HALF_W); ctx.lineTo(best[1]! * sgn, HALF_W); ctx.stroke(); ctx.setLineDash([]);
-  }
-
-  private drawSelectionArrows(ctx: CanvasRenderingContext2D, u: number, S: number): void {
-    if (this.replay) return;
-    this.match.humans.forEach((h, i) => {
-      const p = h.player;
-      if (!p || !p.active()) return;
-      const pv = this.views.get(p);
-      if (!pv) return;
-      const col = PLAYER_COLORS[i % 4]!;
-      const bob = Math.sin(this.time * 5) * 0.08;
-      const x = pv.sx, y = pv.sy - (0.95 + bob + pv.anim.air * 0.25) * u * 0.9;
-      const s = Math.max(5, S * 0.34);
-      ctx.fillStyle = col; ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = Math.max(1.5, s * 0.16); ctx.lineJoin = 'round';
-      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x - s, y - s * 1.35); ctx.lineTo(x + s, y - s * 1.35); ctx.closePath(); ctx.stroke(); ctx.fill();
-    });
   }
 
   private drawPopups(ctx: CanvasRenderingContext2D): void {
@@ -750,7 +671,6 @@ export class MatchView {
   }
 }
 
-function replayless(controlled: MPlayer | null, replaying: boolean): MPlayer | null { return replaying ? null : controlled; }
 
 void lerp; void PLAYER_COLORS;
 export type { PState };

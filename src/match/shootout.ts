@@ -46,7 +46,6 @@ export class Shootout {
     startSetPiece(m, { type: 'penalty', side, x: HALF_L - PEN_SPOT, y: 0, shootout: true, taker });
     m.phase = 'shootout';
     // the keeper of the defending side stays; everyone else waits in the centre circle
-    for (const pl of m.all) { pl.human = pl.human; }
   }
 
   update(m: Match, dt: number): void {

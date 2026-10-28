@@ -7,46 +7,48 @@ function trackErrors(page: Page): string[] {
   return errors;
 }
 
-test('loads the main menu without console errors', async ({ page }) => {
+test('loads the landing page without console errors', async ({ page }) => {
   const errors = trackErrors(page);
   await page.goto('/');
-  await expect(page.getByText('Football Simulator').first()).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Quick match' })).toBeVisible();
+  await expect(page.locator('.logo').first()).toBeVisible();
+  await expect(page.getByText('Exhibition match')).toBeVisible();
   expect(errors).toEqual([]);
 });
 
-test('starts a quick match, plays and pauses', async ({ page }) => {
+test('runs an exhibition match to full time', async ({ page }) => {
   const errors = trackErrors(page);
   await page.goto('/');
-  await page.getByRole('button', { name: 'Quick match' }).click();
+  await page.getByText('Exhibition match').click();
   await page.getByRole('button', { name: 'Kick off' }).click();
-  await expect(page.locator('canvas:visible').first()).toBeVisible();
+  await page.getByRole('button', { name: 'Kick off' }).click();
   await page.waitForTimeout(1500);
-  await page.keyboard.press('Space'); // skip line-up
-  await page.waitForTimeout(3000);
-  await page.keyboard.down('KeyD'); await page.waitForTimeout(500); await page.keyboard.up('KeyD');
   await page.keyboard.press('Escape');
-  await expect(page.getByText('Paused')).toBeVisible();
+  await expect(page.getByText('Paused').first()).toBeVisible();
   await page.getByRole('button', { name: 'Resume' }).click();
-  const state = await page.evaluate(() => { const a = (window as unknown as { __app: { session: { match: { time: number; phase: string } } } }).__app; return { t: a.session.match.time, phase: a.session.match.phase }; });
-  expect(state.t).toBeGreaterThan(0);
+  await page.keyboard.press('KeyF');
+  await expect(page.getByRole('button', { name: 'Start second half' })).toBeVisible({ timeout: 45_000 });
+  await page.getByRole('button', { name: 'Start second half' }).click();
+  await expect(page.locator('.modal').getByText('Exhibition')).toBeVisible({ timeout: 60_000 });
   expect(errors).toEqual([]);
 });
 
 test('settings are searchable', async ({ page }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: 'Settings' }).click();
+  await page.getByText('Settings', { exact: true }).first().click();
   await page.getByPlaceholder('Search settings…').fill('shadows');
   await expect(page.getByText('Shadows').first()).toBeVisible();
 });
 
-test('career starts and advances', async ({ page }) => {
+test('career starts and reaches a matchday', async ({ page }) => {
   const errors = trackErrors(page);
   await page.goto('/');
-  await page.getByRole('button', { name: 'Career' }).click();
+  await page.getByText('Start your career').click();
   await page.getByRole('button', { name: 'Start career' }).click();
-  await expect(page.getByText('Season 2026 · Week 1')).toBeVisible();
-  await page.getByRole('button', { name: 'Skip to next match' }).click();
-  await expect(page.getByText(/Week \d+/).first()).toBeVisible();
+  const cta = page.locator('.topbar .btn.primary');
+  await expect(cta).toBeVisible();
+  for (let i = 0; i < 6 && !/Matchday/.test(await cta.innerText()); i++) { await cta.click(); await page.waitForTimeout(1200); }
+  await cta.click();
+  await expect(page.getByRole('button', { name: 'Kick off' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Simulate' })).toBeVisible();
   expect(errors).toEqual([]);
 });

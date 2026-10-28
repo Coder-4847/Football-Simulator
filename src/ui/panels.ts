@@ -1,15 +1,14 @@
 import { h, clear, toast } from './dom';
 import type { Match } from '../match/match';
 import { summarize, playerResults, type PlayerResult } from '../match/stats';
-import { FORMATIONS } from '../data/formations';
 import { PITCH_L } from '../match/constants';
 import type { Side } from '../match/constants';
 import type { MPlayer } from '../match/entities';
 import { audio } from '../audio/engine';
+import { crest, formationPicker, icon, ovrBadge, posTag, tacticsEditor } from './components';
 
-export function modal(content: HTMLElement, onBg?: () => void): HTMLElement {
-  const bg = h('div', { class: 'modal-bg ui-layer' }, h('div', { class: 'modal' }, content));
-  bg.style.padding = '20px';
+export function modal(content: HTMLElement, onBg?: () => void, cls = ''): HTMLElement {
+  const bg = h('div', { class: 'modal-bg' }, h('div', { class: `modal ${cls}`.trim() }, content));
   if (onBg) bg.addEventListener('pointerdown', (e) => { if (e.target === bg) onBg(); });
   return bg;
 }
@@ -21,7 +20,7 @@ export function statRow(label: string, a: string | number, b: string | number, p
 }
 
 export function heatCanvas(heat: Float32Array, color: string): HTMLCanvasElement {
-  const c = h('canvas', { width: 300, height: 200, style: 'width:100%;border-radius:8px;background:#14301c' }) as HTMLCanvasElement;
+  const c = h('canvas', { width: 300, height: 200, style: 'width:100%;border-radius:10px;background:#143a1f' }) as HTMLCanvasElement;
   const g = c.getContext('2d')!;
   let max = 1; for (const v of heat) max = Math.max(max, v);
   for (let y = 0; y < 20; y++) for (let x = 0; x < 30; x++) {
@@ -36,14 +35,13 @@ export function heatCanvas(heat: Float32Array, color: string): HTMLCanvasElement
 }
 
 export function passMapCanvas(m: Match, side: Side, color: string): HTMLCanvasElement {
-  const c = h('canvas', { width: 300, height: 200, style: 'width:100%;border-radius:8px;background:#14301c' }) as HTMLCanvasElement;
+  const c = h('canvas', { width: 300, height: 200, style: 'width:100%;border-radius:10px;background:#143a1f' }) as HTMLCanvasElement;
   const g = c.getContext('2d')!;
   g.strokeStyle = 'rgba(255,255,255,.3)'; g.strokeRect(1, 1, 298, 198); g.beginPath(); g.moveTo(150, 0); g.lineTo(150, 200); g.stroke();
   const dir = m.teams[side].dir;
   g.strokeStyle = color; g.globalAlpha = 0.35; g.lineWidth = 1;
   for (const p of m.passMap) {
     if (p.side !== side) continue;
-    // normalise by attacking direction of the half the pass was played in (approx using current dir)
     const x0 = 150 + (p.x0 * dir / (PITCH_L / 2)) * 150, x1 = 150 + (p.x1 * dir / (PITCH_L / 2)) * 150;
     g.beginPath(); g.moveTo(x0, 100 + (p.y0 / 34) * 100); g.lineTo(x1, 100 + (p.y1 / 34) * 100); g.stroke();
   }
@@ -65,68 +63,76 @@ export function statsPanel(m: Match, title: string, onClose: () => void, closeLa
     statRow('Cards', `${A.yellow}Y ${A.red}R`, `${B.yellow}Y ${B.red}R`, A.yellow + A.red * 2, B.yellow + B.red * 2, ca, cb),
   ];
   const ratingTable = (side: Side): HTMLElement => h('table', null, h('tbody', null, res.filter((r) => r.side === side).sort((a, b) => b.rating - a.rating).slice(0, 8).map((r: PlayerResult) =>
-    h('tr', null, h('td', null, r.name + (r.goals ? ` ⚽${r.goals}` : '')), h('td', { style: 'text-align:right' }, r.rating.toFixed(1))))));
+    h('tr', null, h('td', null, r.name + (r.goals ? ` ⚽${r.goals}` : '')), h('td', { style: 'text-align:right' }, ovrBadge(Math.round(r.rating * 10)))))));
   const shootout = m.shootout ? h('div', { class: 'muted', style: 'text-align:center' }, `Penalties ${m.shootout.score[0]} – ${m.shootout.score[1]}`) : null;
-  const heats = h('div', { class: 'split' }, h('div', null, h('h3', null, `${A.short} heat map`), heatCanvas(m.heat[0], ca)), h('div', null, h('h3', null, `${B.short} heat map`), heatCanvas(m.heat[1], cb)));
-  const maps = h('div', { class: 'split' }, h('div', null, h('h3', null, `${A.short} pass map`), passMapCanvas(m, 0, ca)), h('div', null, h('h3', null, `${B.short} pass map`), passMapCanvas(m, 1, cb)));
+  const goals = m.eventLog.filter((e) => e.type === 'goal');
   return h('div', { class: 'col' },
-    h('div', { class: 'row', style: 'justify-content:center;gap:28px' }, h('h2', null, A.name), h('div', { class: 'hero-title' }, `${A.goals} – ${B.goals}`), h('h2', null, B.name)),
-    h('div', { class: 'muted', style: 'text-align:center' }, title), shootout,
-    h('div', null, rows), mom ? h('div', { class: 'card' }, h('h3', null, 'Man of the match'), h('div', null, `${mom.name} — ${mom.rating.toFixed(1)}`)) : null,
-    h('div', { class: 'split' }, h('div', null, h('h3', null, A.short), ratingTable(0)), h('div', null, h('h3', null, B.short), ratingTable(1))), heats, maps, ...(extra ?? []),
-    h('div', { class: 'row', style: 'justify-content:center' }, h('button', { class: 'btn primary', onclick: onClose }, closeLabel)));
+    h('div', { class: 'result-hero' }, h('div', { class: 'tm' }, crest(m.teams[0].kit), h('h2', null, A.name)), h('div', null, h('div', { class: 'sc' }, `${A.goals} – ${B.goals}`), h('div', { class: 'muted' }, title)), h('div', { class: 'tm' }, crest(m.teams[1].kit), h('h2', null, B.name))),
+    shootout,
+    goals.length ? h('div', { class: 'row wrap', style: 'justify-content:center;gap:10px 22px' }, goals.map((g) => h('span', { class: 'pill' }, `⚽ ${g.text} ${g.minute}'`))) : null,
+    h('div', { class: 'card flat' }, rows), mom ? h('div', { class: 'card flat row' }, icon('trophy', 'gold'), h('div', null, h('h3', { style: 'margin:0 0 4px' }, 'Man of the match'), h('b', null, `${mom.name}`), h('span', { class: 'muted' }, ` — ${mom.rating.toFixed(1)}`))) : null,
+    h('div', { class: 'split' }, h('div', null, h('h3', { style: 'margin-bottom:8px' }, `${A.short} ratings`), ratingTable(0)), h('div', null, h('h3', { style: 'margin-bottom:8px' }, `${B.short} ratings`), ratingTable(1))),
+    h('div', { class: 'split' }, h('div', null, h('h3', { style: 'margin-bottom:8px' }, `${A.short} heat map`), heatCanvas(m.heat[0], ca)), h('div', null, h('h3', { style: 'margin-bottom:8px' }, `${B.short} heat map`), heatCanvas(m.heat[1], cb))),
+    h('div', { class: 'split' }, h('div', null, h('h3', { style: 'margin-bottom:8px' }, `${A.short} pass map`), passMapCanvas(m, 0, ca)), h('div', null, h('h3', { style: 'margin-bottom:8px' }, `${B.short} pass map`), passMapCanvas(m, 1, cb))),
+    ...(extra ?? []),
+    h('div', { class: 'row sticky-foot' }, h('button', { class: 'btn primary big', onclick: onClose }, closeLabel)));
 }
 
-export function lineupPanel(m: Match): HTMLElement {
+/** Team sheets shown for a few seconds before kick-off. */
+export function kickoffCard(m: Match, managed: Side | 'both' | null, onGo: () => void): HTMLElement {
   const col = (side: Side): HTMLElement => {
     const t = m.teams[side];
-    return h('div', { class: 'tm' }, h('h2', { style: `color:${t.kit.primary}` }, t.name), h('div', { class: 'muted' }, t.formation.name),
-      t.players.map((p) => h('div', null, h('span', { class: 'no' }, p.data.number), p.data.name, h('span', { class: 'muted' }, `  ${p.data.overall}`))));
+    const mine = managed === 'both' || managed === side;
+    return h('div', { class: 'tm' }, crest(t.kit), h('div', { class: 'nm' }, t.name), h('div', { class: 'row', style: 'gap:8px' }, h('span', { class: 'pill accent' }, t.formation.name), mine ? h('span', { class: 'pill gold' }, 'Your team') : null),
+      h('div', { class: 'xi' }, t.players.map((p) => h('div', null, h('span', { class: 'no' }, p.data.number), h('span', null, p.data.shortName), h('span', { class: 'muted', style: 'margin-left:auto' }, p.data.overall)))));
   };
-  return h('div', { class: 'lineup' }, h('div', { class: 'col', style: 'align-items:center' }, h('div', { class: 'cols' }, col(0), h('div', { class: 'hero-title', style: 'align-self:center' }, 'VS'), col(1)), h('div', { class: 'muted' }, 'Press any button to start')));
+  return h('div', { class: 'kickoff-card' }, h('div', { class: 'cols' }, col(0), h('div', { class: 'display', style: 'align-self:center;font-size:44px;color:var(--text-faint)' }, 'VS'), col(1)),
+    h('div', { class: 'row', style: 'justify-content:center;margin-top:22px' }, h('button', { class: 'btn primary big', onclick: onGo }, icon('play'), 'Kick off')));
 }
 
-export function subsPanel(m: Match, side: Side, onDone: () => void): HTMLElement {
+/** Substitutions: pick who leaves, then who comes on. */
+export function subsPanel(m: Match, side: Side, onDone: () => void, forced?: MPlayer): HTMLElement {
   const t = m.teams[side];
-  let off: MPlayer | null = null;
+  let off: MPlayer | null = forced ?? null;
   const left = m.cfg.maxSubs - t.subsMade;
   const list = h('div', { class: 'col', style: 'gap:6px' });
   const benchList = h('div', { class: 'col', style: 'gap:6px' });
-  const info = h('div', { class: 'muted' }, `${left} substitution${left === 1 ? '' : 's'} left · ${m.cfg.subWindows - m.windowsUsedFor(side)} windows`);
+  const queued = m.subQueue.filter((q) => q.side === side);
+  const info = h('div', { class: 'muted' }, `${left} substitution${left === 1 ? '' : 's'} left · ${m.cfg.subWindows - m.windowsUsedFor(side)} windows${queued.length ? ` · ${queued.length} queued` : ''}`);
   const renderBench = (): void => {
     clear(benchList);
     for (const b of t.bench) {
-      benchList.appendChild(h('button', {
-        class: 'btn', onclick: (): void => {
+      benchList.appendChild(h('div', {
+        class: 'bench-row', onclick: (): void => {
           if (!off) { toast('Select a player to replace first'); return; }
           if (m.phase === 'play') { m.queueSub(side, off, b); toast(`${b.shortName} will come on at the next stoppage`); }
           else if (!m.substitute(side, off, b)) { toast('No substitutions available'); return; }
           audio.ui('confirm'); onDone();
         },
-      }, `${b.number} ${b.shortName}`, h('span', { class: 'pill' }, `${b.positions[0]} · ${b.overall}`)));
+      }, posTag(b.positions[0]!), h('div', { class: 'grow' }, h('div', { class: 'nm' }, `${b.number} ${b.name}`), h('div', { class: 'sub' }, `${b.age}y · fitness ${Math.round(b.fitness)}%`)), ovrBadge(b.overall)));
     }
   };
   const renderOn = (): void => {
     clear(list);
     for (const p of t.players.filter((q) => q.active())) {
-      list.appendChild(h('button', { class: 'btn' + (off === p ? ' primary' : ''), onclick: (): void => { off = p; renderOn(); } },
-        `${p.data.number} ${p.data.shortName}`, h('span', { class: 'pill' }, p.slotPos), h('span', { class: p.stamina < 0.4 ? 'pill bad' : p.stamina < 0.65 ? 'pill warn' : 'pill accent' }, `${Math.round(p.stamina * 100)}%`)));
+      const tired = Math.round(p.stamina * 100);
+      list.appendChild(h('div', { class: 'bench-row' + (off === p ? ' sel' : ''), onclick: (): void => { off = p; renderOn(); } },
+        posTag(p.slotPos), h('div', { class: 'grow' }, h('div', { class: 'nm' }, `${p.data.number} ${p.data.name}`), h('div', { class: 'bar thin', style: 'margin-top:5px' }, h('i', { style: `width:${tired}%;background:${tired < 40 ? 'var(--danger)' : tired < 65 ? 'var(--warn)' : 'var(--accent)'}` }))), ovrBadge(p.data.overall)));
     }
   };
   renderOn(); renderBench();
-  return h('div', { class: 'col' }, h('h2', null, 'Substitutions'), info, h('div', { class: 'split' }, h('div', { class: 'col' }, h('h3', null, 'On the pitch'), list), h('div', { class: 'col' }, h('h3', null, 'Bench'), benchList)),
+  return h('div', { class: 'col' }, h('div', { class: 'row', style: 'justify-content:space-between' }, h('h2', null, forced ? `${forced.data.shortName} is injured — choose a replacement` : 'Substitutions'), info),
+    h('div', { class: 'split' }, h('div', { class: 'col', style: 'gap:10px' }, h('h3', null, 'On the pitch'), list), h('div', { class: 'col', style: 'gap:10px' }, h('h3', null, 'Bench'), benchList)),
     h('div', { class: 'row' }, h('button', { class: 'btn', onclick: onDone }, 'Back')));
 }
 
+/** Live tactics: change formation and instructions while the match runs. */
 export function tacticsPanel(m: Match, side: Side, onDone: () => void): HTMLElement {
   const t = m.teams[side];
-  const slider = (label: string, key: 'lineHeight' | 'compactness' | 'width' | 'pressing' | 'tempo' | 'directness'): HTMLElement =>
-    h('div', { class: 'field' }, h('label', null, label), h('input', { type: 'range', min: 0, max: 100, value: t.tactics[key], oninput: (e: Event): void => { t.tactics[key] = Number((e.target as HTMLInputElement).value); } }));
-  const formation = h('select', { onchange: (e: Event): void => m.setFormation(side, (e.target as HTMLSelectElement).value) }, FORMATIONS.map((f) => h('option', { value: f.id, selected: f.id === t.formation.id }, f.name)));
-  return h('div', { class: 'col' }, h('h2', null, 'Tactics'),
-    h('div', { class: 'field' }, h('label', null, 'Formation'), formation),
-    h('div', { class: 'split' }, slider('Defensive line', 'lineHeight'), slider('Compactness', 'compactness'), slider('Width', 'width'), slider('Pressing', 'pressing'), slider('Tempo', 'tempo'), slider('Directness', 'directness')),
-    h('div', { class: 'row' }, h('label', { class: 'row' }, h('input', { class: 'toggle', type: 'checkbox', checked: t.tactics.offsideTrap, onchange: (e: Event): void => { t.tactics.offsideTrap = (e.target as HTMLInputElement).checked; } }), 'Offside trap'),
-      h('select', { onchange: (e: Event): void => { t.tactics.marking = (e.target as HTMLSelectElement).value as 'zonal'; } }, ['zonal', 'mixed', 'man'].map((k) => h('option', { value: k, selected: t.tactics.marking === k }, `${k} marking`)))),
-    h('div', { class: 'row' }, h('button', { class: 'btn', onclick: onDone }, 'Back')));
+  const root = h('div', { class: 'col', style: 'gap:22px' });
+  root.append(
+    h('div', { class: 'row', style: 'justify-content:space-between' }, h('div', { class: 'row' }, crest(t.kit, 32), h('h2', null, `${t.name} — tactics`)), h('button', { class: 'btn primary', onclick: onDone }, icon('check'), 'Apply & resume')),
+    h('div', { class: 'col', style: 'gap:10px' }, h('h3', null, 'Formation'), formationPicker(t.formation.id, (id) => m.setFormation(side, id))),
+    tacticsEditor(t.tactics, () => undefined));
+  return root;
 }

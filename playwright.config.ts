@@ -3,7 +3,7 @@ import { defineConfig } from '@playwright/test';
 // Set PW_CHROMIUM to a Chromium binary if `npx playwright install` is not available.
 export default defineConfig({
   testDir: 'tests-e2e',
-  timeout: 120_000,
+  timeout: 180_000,
   workers: 1,
   use: {
     baseURL: 'http://localhost:4173/',

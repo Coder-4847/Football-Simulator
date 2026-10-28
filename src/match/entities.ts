@@ -59,8 +59,6 @@ export class MPlayer {
   noTouchUntil = 0;
   /** time until which this player cannot be re-fouled/tackle again */
   tackleCooldown = 0;
-  /** human controller index controlling this player (-1 none) */
-  human = -1;
   sentOff = false;
   injured = false;
   yellowCards = 0;
@@ -119,7 +117,7 @@ export class Team {
   subWindows = 0;
   windowOpenForSub = false;
   subs: SubRecord[] = [];
-  /** human controllers on this team (indices into match.humans) */
+  /** non-empty when the user manages this team (AI substitutions are left to the manager) */
   controlled: number[] = [];
   possessionTime = 0;
   stats = { shots: 0, onTarget: 0, passes: 0, passesCompleted: 0, tackles: 0, fouls: 0, corners: 0, offsides: 0, yellow: 0, red: 0, xg: 0, saves: 0, crosses: 0, freeKicks: 0, interceptions: 0, clearances: 0 };

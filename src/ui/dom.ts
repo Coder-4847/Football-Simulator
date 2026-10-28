@@ -26,6 +26,9 @@ function append(el: Node, children: Child[]): void {
   }
 }
 
+/** Appends children (null-safe, arrays allowed). */
+export function add<T extends Element>(el: T, ...children: Child[]): T { append(el, children); return el; }
+
 export function clear(el: Element): void { while (el.firstChild) el.removeChild(el.firstChild); }
 
 export function toast(msg: string, ms = 2400): void {

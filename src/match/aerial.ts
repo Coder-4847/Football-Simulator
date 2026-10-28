@@ -3,7 +3,7 @@ import { BOX_L, HALF_L, other } from './constants';
 import type { MPlayer } from './entities';
 import type { Match } from './match';
 import { executePass, executeShot } from './actions';
-import { pickPassTarget } from './human';
+import { pickPassTarget } from './passing';
 
 /** Header contests for balls between ~1.0 and 2.7 m. */
 export function resolveAerial(m: Match): void {
@@ -44,16 +44,9 @@ export function resolveAerial(m: Match): void {
   }
   void wasOpp;
   // ---- direction of the header
-  const hIdx = p.human;
-  const h = hIdx >= 0 ? m.humans[hIdx] : undefined;
   const nearGoal = Math.abs(p.x - goalX) < BOX_L + 6 && Math.abs(p.y) < 24;
   let mode: 'shot' | 'pass' | 'clear' = 'clear';
-  if (h) {
-    const q = h.queued;
-    if (h.input.down.b4 || h.input.pressed.b4 || q?.btn === 'b4') mode = 'shot';
-    else if (h.input.down.b1 || h.input.down.b2 || h.input.down.b3 || q) mode = 'pass';
-    h.queued = null;
-  } else {
+  {
     const defendingBox = Math.abs(p.x + goalX) < BOX_L + 4;
     if (nearGoal && m.rng.chance(0.85)) mode = 'shot';
     else if (defendingBox) mode = 'clear';
@@ -62,7 +55,7 @@ export function resolveAerial(m: Match): void {
   if (mode === 'shot' && nearGoal) {
     executeShot(m, p, { kind: 'header', aimY: m.rng.chance(0.5) ? m.rng.float(0.35, 0.85) : -m.rng.float(0.35, 0.85), aimH: m.rng.float(0.1, 0.5), power: 0.6 + m.rng.float(0, 0.3), assist: 0.2, header: true });
   } else if (mode === 'pass') {
-    const sx = h ? h.input.mx : Math.cos(p.face), sy = h ? h.input.my : Math.sin(p.face);
+    const sx = Math.cos(p.face), sy = Math.sin(p.face);
     const ch = pickPassTarget(m, p, sx, sy, 'ground', 0.6);
     if (ch.target && Math.hypot(ch.tx - p.x, ch.ty - p.y) < 22) executePass(m, p, { kind: 'ground', tx: ch.tx, ty: ch.ty, receiver: ch.target, power: 0.35, assist: 0.5, sloppy: 1.6 });
     else executePass(m, p, { kind: 'lowCross', tx: p.x + dir * 9, ty: p.y + (p.y >= 0 ? 1 : -1) * 12, receiver: null, power: 0.5, assist: 0.1, sloppy: 1.6 });

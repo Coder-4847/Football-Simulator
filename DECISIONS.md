@@ -1,5 +1,7 @@
 # Design decisions
 
+> Sections before **Manager pivot** record earlier versions (3D, then top-down player-controlled play). Control, input, assist and training notes there are historical; the game is now a pure manager sim.
+
 The original brief was cut off mid-way (after the Settings section); sections 7+ (including the manager-mode details) were not available, so the career mode follows the feature list in the brief's goals plus common manager-game conventions.
 
 ## Scope honesty — what is simplified or not done
@@ -65,3 +67,11 @@ The original brief was cut off mid-way (after the Settings section); sections 7+
 - Controlled players get extra reach for loose/incoming balls (0.35–0.9 m scaled by the pass assist), a contest bonus, a higher control limit and far fewer heavy first touches; AI tackles on human carriers win slightly less often. A pass heading for the controlled player makes them run onto it when the stick is idle (auto-receive).
 - Default assists raised again (pass 0.85, shot 0.75, cross 0.8, aim 0.65; migrated once). Assist now removes more aim error, widens the pass-target cone, steers shots away from a keeper-covered side and keeps them inside a sensible height band.
 - Right-stick skills: the flick detector fires on any push from neutral (not only fast ones) and again when the stick is rolled to a new direction. A second set of four moves is used while the left shoulder/modifier is held. Moves above a player's star rating fall back to the best allowed move of the same family instead of failing. The HUD player card lists the four moves.
+
+## Manager pivot (v5 settings)
+- Real-time gameplay was removed outright: `src/input`, `src/match/human.ts`, training/skill games and every control binding are gone. All 22 players are AI; the user manages a side through `Match.manage(side)`, which only changes who decides substitutions (the AI skips them for the managed side and emits `needSub` on injuries).
+- **Pacing**: the engine keeps its real-football timing but runs at `BASE_SIM_SPEED = 4` (time-compression), with halves of 1.5 / 2.5 / 4 simulated minutes for Blitz / Standard / Extended. Standard takes ~75 s at 1×; the 0.5×–4× speed setting and the live speed buttons multiply on top. Goal rate stays at ~2 per match because possession, shot and pressing logic scale with the shorter halves, not the physics.
+- **Camera**: default is a fixed full-pitch, goal-to-goal view ('drone', width = max(124 × zoom, pitch width × aspect)). 'Wide follow' and 'Close follow' remain as options. Players and the ball are drawn slightly oversized at this distance so they stay readable.
+- **Lineup state** lives in the save as `lineup {formation, starters, tactics}` and feeds both career matches and `teamSetupFromClub`. Simulated (not watched) matches use the same lineup so results are consistent.
+- **UI**: DOM + CSS design system (`theme.css`, `components.ts`) with a shared crest generator, formation diagrams and player cards; a live AI match plays behind the landing page. Settings migrate once (`prev < 5` drops controls and resets camera/length/speed).
+- Still simplified: no per-player instructions, no set-piece takers selection, no live-text commentary; the opposition report is derived from team ratings and tactics rather than scouting a history.

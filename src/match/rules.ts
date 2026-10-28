@@ -97,14 +97,6 @@ export function startSetPiece(m: Match, init: SetPieceInit): void {
   }
   m.stoppageAcc += init.type === 'penalty' ? 60 : init.type === 'freeKick' || init.type === 'indirectFreeKick' ? 12 : 0;
   m.bus.emit('restart', { type: init.type, side: teamSide });
-  // human control: the human on the taking team controls the taker; others pick sensible defenders
-  for (let i = 0; i < m.humans.length; i++) {
-    const h = m.humans[i]!;
-    if (h.side === teamSide && taker && !h.keeperOnly) {
-      const first = m.humans.findIndex((q) => q.side === teamSide && !q.keeperOnly);
-      if (first === i) { h.player = taker; taker.human = i; }
-    }
-  }
   computeSetPieceTargets(m, sp);
   // dead-ball substitutions for AI teams
   for (const t of m.teams) aiSubstitutions(m, t.side);
@@ -322,7 +314,6 @@ export function updateSetPiece(m: Match, dt: number): void {
     let ready = sp.t >= 0.6;
     if (ready) {
       for (const p of m.all) {
-        if (p.human >= 0 && p !== sp.taker) continue;
         const d = Math.hypot(p.tx - p.x, p.ty - p.y);
         if (d > 1.4 && p.state !== 'down') { ready = false; break; }
       }
@@ -337,8 +328,7 @@ export function updateSetPiece(m: Match, dt: number): void {
   // auto-take for AI (ai.ts handles decisions through m.aiTakeSetPiece) and unattended human timeouts
   if (sp.phase === 'ready') {
     const taker = sp.taker;
-    const isHuman = taker !== null && taker.human >= 0;
-    const wait = isHuman ? 14 : (sp.type === 'penalty' ? 1.6 : sp.type === 'kickoff' ? 1.0 : 0.9) + (1 - m.diffQuality) * 0.8;
+    const wait = (sp.type === 'penalty' ? 1.6 : sp.type === 'kickoff' ? 1.0 : 0.9) + (1 - m.diffQuality) * 0.8;
     if (sp.t - sp.readyAt >= wait && m.aiTakeSetPiece) m.aiTakeSetPiece(m, sp);
   }
 }
@@ -481,7 +471,7 @@ function doTackle(m: Match, t: MPlayer, req: TackleReq): void {
   } else {
     t.setState('tackle', 0.5);
   }
-  const range = (slide ? 2.4 : 1.3) + (t.human >= 0 ? (slide ? 0.7 : 0.55) : 0);
+  const range = slide ? 2.4 : 1.3;
   const att = t.data.attrs;
   const strict = m.cfg.refStrictness;
 
@@ -500,12 +490,12 @@ function doTackle(m: Match, t: MPlayer, req: TackleReq): void {
       const dot = ((t.x - target.x) * vf + (t.y - target.y) * vy) / (d || 1);
       const behind = dot < -0.45;
       const speedBonus = clamp((t.speed - target.speed) / 12, -0.1, 0.1);
-      let pWin = 0.5 + (t.human >= 0 ? 0.14 : 0) - (target.human >= 0 ? 0.08 : 0) + (atk - dribble) / 130 + speedBonus - (target.state === 'skill' ? 0.12 : 0);
+      let pWin = 0.5 + (atk - dribble) / 130 + speedBonus - (target.state === 'skill' ? 0.12 : 0);
       if (slide) pWin = pWin * 0.92 + 0.02;
       if (t.data.traits.includes('Tackler')) pWin += 0.05;
       if (target.data.traits.includes('Press Proven')) pWin -= 0.05;
       pWin = clamp(pWin, 0.1, 0.9);
-      let pFoul = (slide ? 0.3 : 0.14) * (t.human >= 0 ? 0.75 : 1) * (0.5 + att.aggression / 90) * m.cfg.foulFrequency * (0.75 + strict * 0.5);
+      let pFoul = (slide ? 0.3 : 0.14) * (0.5 + att.aggression / 90) * m.cfg.foulFrequency * (0.75 + strict * 0.5);
       if (behind) pFoul *= 2.4;
       if (t.data.traits.includes('Tackler')) pFoul *= 0.85;
       const roll = m.rng.next();
@@ -674,7 +664,6 @@ function sendOff(m: Match, p: MPlayer, second: boolean): void {
   if (second) m.bus.emit('card', { player: p, color: 'red', second: true });
   if (m.owner === p) m.owner = null;
   m.refreshAll();
-  for (const h of m.humans) if (h.player === p) h.player = null;
   // goalkeeper sent off: bring on the sub GK or put an outfield player in goal
   const t = m.teams[p.side];
   if (p.isGK()) {

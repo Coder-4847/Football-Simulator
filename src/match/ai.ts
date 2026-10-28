@@ -184,7 +184,6 @@ export function updateTeamAI(m: Match, team: Team, dt: number): void {
   const ball = m.ball;
   for (const p of team.players) {
     if (!p.active()) continue;
-    if (p.human >= 0 && m.humans[p.human]?.player === p) continue; // human-driven
     if (team.frozen) { resetIntent(p); continue; }
     p.thinkT -= dt;
     if (p.state === 'down' || p.state === 'slide' || p.state === 'dive' || p.state === 'skill') { resetIntent(p); continue; }
@@ -207,7 +206,6 @@ export function updateHalfBreakAI(m: Match, team: Team): void {
 function setPieceAI(m: Match, p: MPlayer): void {
   resetIntent(p);
   const sp = m.sp;
-  if (sp && p.human >= 0 && p === sp.taker) return;
   if (sp && p === sp.taker && sp.phase === 'ready') { goToward(p, p.tx, p.ty, { slowNear: 1.5 }); if (Math.hypot(p.tx - p.x, p.ty - p.y) < 0.6) { p.intent.mx = 0; p.intent.my = 0; } p.intent.faceAngle = Math.atan2(sp.y - p.y, sp.x - p.x); return; }
   goToward(p, p.tx, p.ty, { sprintFar: 7 });
   if (Math.hypot(p.tx - p.x, p.ty - p.y) < 1) {
