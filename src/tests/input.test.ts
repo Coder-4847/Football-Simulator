@@ -27,9 +27,23 @@ describe('gestures', () => {
     expect(f.update(0, -1, 0.1)).toBeNull();
     expect(dirOf(1, 0.2)).toBe('R');
   });
+  it('fires on a slow push and again when the stick is rolled to a new direction', () => {
+    const f = new FlickDetector();
+    expect(f.update(0, 0, 0)).toBeNull();
+    expect(f.update(0.4, 0, 0.3)).toBeNull();
+    expect(f.update(0.7, 0, 0.6)).toBe('R');
+    expect(f.update(0.7, 0, 0.7)).toBeNull();
+    expect(f.update(0, 0.8, 1.0)).toBe('D');
+    expect(f.update(0, 0, 1.2)).toBeNull();
+    expect(f.update(-0.9, 0, 1.3)).toBe('L');
+  });
 });
 
 describe('bindings & skills', () => {
+  it('gives low-skill players a fallback move instead of nothing', () => {
+    const lo = resolveLoadout(['body-feint', 'step-over', 'flip-flap', 'spin-turn'], undefined, 1);
+    expect(lo.every((m) => m !== null && m.stars <= 1)).toBe(true);
+  });
   it('detects key conflicts', () => {
     expect(findKeyConflicts({ b1: ['KeyJ'], b2: ['KeyJ'], b3: ['KeyL'] })).toEqual([{ code: 'KeyJ', actions: ['b1', 'b2'] }]);
     expect(keyLabel('KeyJ')).toBe('J'); expect(keyLabel('ShiftLeft')).toBe('Shift');
@@ -39,9 +53,10 @@ describe('bindings & skills', () => {
     expect(new Set(SKILL_MOVES.map((m) => m.id)).size).toBe(SKILL_MOVES.length);
     for (let s = 1; s <= 5; s++) expect(SKILL_MOVES.some((m) => m.stars === s)).toBe(true);
   });
-  it('loadout drops moves above the player star rating; success scales with skill', () => {
+  it('loadout replaces moves above the player star rating with an allowed one; success scales with skill', () => {
     const lo = resolveLoadout(['body-feint', 'overhead-flick', 'step-over', 'spin-turn'], undefined, 2);
-    expect(lo.map((m) => m?.id ?? null)).toEqual(['body-feint', null, 'step-over', null]);
+    expect(lo.every((m) => m !== null && m.stars <= 2)).toBe(true);
+    expect(lo[0]!.id).toBe('body-feint'); expect(lo[2]!.id).toBe('step-over');
     const mv = SKILL_MOVES.find((m) => m.id === 'step-over')!;
     const hi = skillSuccess(mv, { dribbling: 90, agility: 90, ballControl: 90, skillMoves: 5, balance: 80 }, { reactions: 60, agility: 60, standingTackle: 60 }, 0.5);
     const lowS = skillSuccess(mv, { dribbling: 40, agility: 40, ballControl: 40, skillMoves: 2, balance: 40 }, { reactions: 60, agility: 60, standingTackle: 60 }, 0.5);

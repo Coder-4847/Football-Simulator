@@ -60,3 +60,8 @@ The original brief was cut off mid-way (after the Settings section); sections 7+
 - Weight: acceleration lowered slightly again (7.6-12.2 m/s², brake x1.5, stronger turn penalty), kick animations have a wind-up and the ball is released at the strike frame (35-55 ms), strong shots/slides add camera punch, shake and 35-50 ms hit-stop.
 - Performance: the pitch grass, stadium ground and crowd sections are baked once and blitted clipped to the visible rectangle; only players, ball, particles and markers are drawn per frame.
 - Camera modes were renamed for the 2D view: Standard, Close, Wide, Player lock, Full pitch (legacy ids still load). Camera 'height' no longer exists.
+
+## Ball winning, assists, right-stick skills (v4 settings)
+- Controlled players get extra reach for loose/incoming balls (0.35–0.9 m scaled by the pass assist), a contest bonus, a higher control limit and far fewer heavy first touches; AI tackles on human carriers win slightly less often. A pass heading for the controlled player makes them run onto it when the stick is idle (auto-receive).
+- Default assists raised again (pass 0.85, shot 0.75, cross 0.8, aim 0.65; migrated once). Assist now removes more aim error, widens the pass-target cone, steers shots away from a keeper-covered side and keeps them inside a sensible height band.
+- Right-stick skills: the flick detector fires on any push from neutral (not only fast ones) and again when the stick is rolled to a new direction. A second set of four moves is used while the left shoulder/modifier is held. Moves above a player's star rating fall back to the best allowed move of the same family instead of failing. The HUD player card lists the four moves.

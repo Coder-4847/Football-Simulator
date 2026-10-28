@@ -55,21 +55,24 @@ export class GestureRecognizer {
   reset(): void { this.seq = []; }
 }
 
-/** Detects quick pushes of an analog stick from neutral to a direction. */
+/**
+ * Detects pushes of an analog stick from neutral to a direction (right stick = skill flicks).
+ * Any push past the threshold counts, slow or fast, and rolling the stick to a new direction while it stays
+ * pushed fires again, so chained moves feel like they do on a console.
+ */
 export class FlickDetector {
-  private neutralT = 0;
   private wasNeutral = true;
-  private armed = true;
-  constructor(private hi = 0.72, private lo = 0.3, private maxTime = 0.22) {}
+  private lastDir: Dir4 | null = null;
+  private lastT = -10;
+  constructor(private hi = 0.58, private lo = 0.26, private rollGap = 0.22) {}
 
   update(x: number, y: number, t: number): Dir4 | null {
     const m = Math.hypot(x, y);
-    if (m < this.lo) { this.wasNeutral = true; this.neutralT = t; this.armed = true; return null; }
-    if (m > this.hi && this.armed && this.wasNeutral && t - this.neutralT < this.maxTime) {
-      this.armed = false; this.wasNeutral = false;
-      return dirOf(x, y);
-    }
-    if (m > this.hi) this.wasNeutral = false;
+    if (m < this.lo) { this.wasNeutral = true; this.lastDir = null; return null; }
+    if (m < this.hi) return null;
+    const d = dirOf(x, y);
+    if (this.wasNeutral) { this.wasNeutral = false; this.lastDir = d; this.lastT = t; return d; }
+    if (this.lastDir !== null && d !== this.lastDir && t - this.lastT > this.rollGap) { this.lastDir = d; this.lastT = t; return d; }
     return null;
   }
 }

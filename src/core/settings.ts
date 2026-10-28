@@ -4,7 +4,7 @@ import type { QualityName, Quality } from '../render/quality';
 import type { CameraMode } from '../render/camera';
 import type { GradePreset } from '../render/post';
 import type { Difficulty } from '../match/types';
-import { DEFAULT_LOADOUT } from '../match/skills';
+import { DEFAULT_LOADOUT, DEFAULT_LOADOUT_ALT } from '../match/skills';
 
 export type KeyBindings = Record<Btn | 'up' | 'down' | 'left' | 'right' | 'rUp' | 'rDown' | 'rLeft' | 'rRight', string[]>;
 export type PadBindings = Record<Btn, number[]>;
@@ -25,7 +25,7 @@ export interface Settings {
     sensitivity: number; deadzone: number; vibration: boolean; mouseAim: boolean;
     touch: { layout: Record<string, TouchButtonLayout>; opacity: number; joystickSize: number; joystickSensitivity: number; skillMode: 'flick' | 'buttons'; autoAssist: number; haptics: boolean; presets: Record<string, Record<string, TouchButtonLayout>> };
     assist: { pass: number; shot: number; cross: number; keeper: number; aim: number; autoSwitch: boolean };
-    skillLoadout: string[]; skillOverrides: Record<string, string[]>; skillBindings: Record<string, string>;
+    skillLoadout: string[]; skillLoadoutAlt: string[]; skillOverrides: Record<string, string[]>; skillBindings: Record<string, string>;
   };
   gameplay: {
     difficulty: Difficulty; halfLength: number; gameSpeed: 'slow' | 'normal' | 'fast'; refStrictness: number; offside: boolean; foulFrequency: number; injuries: boolean; fatigue: boolean;
@@ -66,15 +66,15 @@ export const TOUCH_DEFAULT_LAYOUT: Record<string, TouchButtonLayout> = {
 
 export function defaultSettings(mobile: boolean): Settings {
   return {
-    version: 3,
+    version: 4,
     graphics: { preset: mobile ? 'Low' : 'Medium', custom: {}, fpsCap: mobile ? 60 : 0, showFps: false, grade: 'broadcast', autoDetected: false, resolutionScale: 1, ballTrail: true, weatherEffects: true },
     audio: { master: 0.8, music: 0.5, crowd: 0.8, sfx: 0.9, menuMusic: true, muteOnBlur: true, dynamicCrowd: true, ticker: true, tts: false },
     controls: {
       device: 'auto', keyboard: structuredClone(DEFAULT_KEYBOARD), keyboardP2: structuredClone(DEFAULT_KEYBOARD_P2), gamepad: structuredClone(DEFAULT_PAD),
       profile: 'Default', profiles: {}, sensitivity: 1, deadzone: 0.18, vibration: true, mouseAim: true,
       touch: { layout: structuredClone(TOUCH_DEFAULT_LAYOUT), opacity: 0.7, joystickSize: 1, joystickSensitivity: 1, skillMode: 'flick', autoAssist: 0.6, haptics: true, presets: {} },
-      assist: { pass: 0.7, shot: 0.55, cross: 0.65, keeper: 0.6, aim: 0.45, autoSwitch: true },
-      skillLoadout: [...DEFAULT_LOADOUT], skillOverrides: {}, skillBindings: {},
+      assist: { pass: 0.85, shot: 0.75, cross: 0.8, keeper: 0.6, aim: 0.65, autoSwitch: true },
+      skillLoadout: [...DEFAULT_LOADOUT], skillLoadoutAlt: [...DEFAULT_LOADOUT_ALT], skillOverrides: {}, skillBindings: {},
     },
     gameplay: {
       difficulty: 'Professional', halfLength: 5, gameSpeed: 'normal', refStrictness: 0.5, offside: true, foulFrequency: 1, injuries: true, fatigue: true, camera: mobile ? 'mobile' : 'broadcast',
@@ -104,10 +104,10 @@ class SettingsStore {
         this.value.graphics.fpsCap = d.graphics.fpsCap;
         this.value.version = 2;
       }
-      if (prev < 3) {
-        // v3: stronger default passing/shooting assists
+      if (prev < 4) {
+        // v4: even stronger default passing/shooting assists
         this.value.controls.assist = { ...defaultSettings(this.mobile).controls.assist };
-        this.value.version = 3;
+        this.value.version = 4;
         void storage.set('settings', this.value);
       }
     }

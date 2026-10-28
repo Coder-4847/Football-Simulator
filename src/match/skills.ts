@@ -94,14 +94,20 @@ export const skillById = (id: string): SkillMove | undefined => SKILL_MOVES.find
 export const skillsForStars = (stars: number): SkillMove[] => SKILL_MOVES.filter((m) => m.stars <= stars);
 
 export const DEFAULT_LOADOUT: string[] = ['body-feint', 'step-over', 'flip-flap', 'spin-turn'];
+/** Second set, used while the left shoulder / modifier is held during a right-stick flick. */
+export const DEFAULT_LOADOUT_ALT: string[] = ['ball-roll', 'drag-back', 'hop-over', 'fake-shot'];
 
 /** Resolve a player's loadout: per-player override, else global; moves above the player's star rating are replaced by the best allowed fallback. */
 export function resolveLoadout(global: string[], override: string[] | undefined, playerStars: number): Array<SkillMove | null> {
   const src = override && override.length ? override : global;
   return [0, 1, 2, 3].map((i) => {
     const m = skillById(src[i] ?? '');
-    if (m && m.stars <= playerStars) return m;
-    return null;
+    if (!m) return null;
+    if (m.stars <= playerStars) return m;
+    // the player is not skilled enough for this move: fall back to the best move of the same family they can do
+    const pool = SKILL_MOVES.filter((x) => x.stars <= playerStars);
+    const same = pool.filter((x) => x.anim === m.anim).sort((a, b) => b.stars - a.stars)[0];
+    return same ?? pool.sort((a, b) => b.stars - a.stars)[0] ?? null;
   });
 }
 

@@ -3,6 +3,7 @@ import type { Match } from '../match/match';
 import type { MatchView } from '../render/matchview';
 import type { HumanSlot } from '../match/types';
 import { humanContext } from '../match/human';
+import { resolveLoadout } from '../match/skills';
 import { promptFor, type Device } from '../input/prompts';
 import type { Btn } from '../input/actions';
 import { settings } from '../core/settings';
@@ -21,7 +22,7 @@ export class Hud {
   private power = h('div', { class: 'power' }, h('i'));
   private prompts = h('div', { class: 'prompts' });
   private poss = h('div', { class: 'poss' }, h('i'), h('b'));
-  private pcard = h('div', { class: 'pcard' }, h('div', { class: 'no' }), h('div', { class: 'who' }, h('div', { class: 'nm' }), h('div', { class: 'pos' }), h('div', { class: 'stam' }, h('i'))));
+  private pcard = h('div', { class: 'pcard' }, h('div', { class: 'no' }), h('div', { class: 'who' }, h('div', { class: 'nm' }), h('div', { class: 'pos' }), h('div', { class: 'stam' }, h('i')), h('div', { class: 'skills' })));
   private replayTag = h('div', { class: 'replay-tag' }, 'REPLAY');
   private fps = h('div', { class: 'fps' });
   private pens = h('div', { class: 'card', style: 'position:absolute;left:50%;top:70px;transform:translateX(-50%);padding:8px 14px;display:none;font-size:14px;letter-spacing:.2em' });
@@ -124,6 +125,7 @@ export class Hud {
   }
 
   private cardFor = '';
+  private skillKey = '';
   private updateCard(humans: HumanSlot[]): void {
     const p = humans[0]?.player;
     this.pcard.style.display = p && !this.view.replay ? 'flex' : 'none';
@@ -135,6 +137,24 @@ export class Hud {
       const no = this.pcard.firstChild as HTMLElement; no.textContent = String(p.data.number); no.style.background = k.primary; no.style.color = luminance(k.primary) > 0.55 ? '#0b0f14' : '#fff'; no.style.borderColor = k.secondary;
       (this.pcard.querySelector('.nm') as HTMLElement).textContent = p.data.name;
       (this.pcard.querySelector('.pos') as HTMLElement).textContent = `${p.slotPos} · OVR ${p.data.overall}`;
+    }
+    // skill-move hints: which move each right-stick direction performs (second set while the left shoulder is held)
+    const sk = this.pcard.querySelector('.skills') as HTMLElement;
+    const hs = humans[0]!;
+    const show = this.match.owner === p && settings.value.gameplay.playerNames;
+    if (!show) { if (sk.firstChild) { clear(sk); this.skillKey = ''; } }
+    else {
+      const alt = hs.input.down.modA;
+      const cfg = this.match.cfg;
+      const lo = alt ? resolveLoadout(cfg.loadoutAlt, undefined, p.data.skillMoves) : resolveLoadout(cfg.loadout, cfg.loadoutOverrides[p.data.id], p.data.skillMoves);
+      const key = `${p.data.id}|${alt}|${lo.map((m) => m?.id ?? '-').join()}|${this.getDevice()}`;
+      if (key !== this.skillKey) {
+        this.skillKey = key; clear(sk);
+        const dev = this.getDevice();
+        const arrows = dev === 'gamepad' ? ['RS ↑', 'RS →', 'RS ↓', 'RS ←'] : ['↑', '→', '↓', '←'];
+        lo.forEach((m, i) => sk.appendChild(h('span', { class: 'sk' + (alt ? ' alt' : '') }, h('kbd', null, arrows[i]!), m ? m.name : '—')));
+        if (dev === 'gamepad') sk.appendChild(h('span', { class: 'sk hint' }, 'hold LB for more'));
+      }
     }
     const bar = this.pcard.querySelector('.stam > i') as HTMLElement;
     bar.style.width = `${Math.round(p.stamina * 100)}%`;

@@ -500,7 +500,7 @@ function doTackle(m: Match, t: MPlayer, req: TackleReq): void {
       const dot = ((t.x - target.x) * vf + (t.y - target.y) * vy) / (d || 1);
       const behind = dot < -0.45;
       const speedBonus = clamp((t.speed - target.speed) / 12, -0.1, 0.1);
-      let pWin = 0.5 + (t.human >= 0 ? 0.14 : 0) + (atk - dribble) / 130 + speedBonus - (target.state === 'skill' ? 0.12 : 0);
+      let pWin = 0.5 + (t.human >= 0 ? 0.14 : 0) - (target.human >= 0 ? 0.08 : 0) + (atk - dribble) / 130 + speedBonus - (target.state === 'skill' ? 0.12 : 0);
       if (slide) pWin = pWin * 0.92 + 0.02;
       if (t.data.traits.includes('Tackler')) pWin += 0.05;
       if (target.data.traits.includes('Press Proven')) pWin -= 0.05;

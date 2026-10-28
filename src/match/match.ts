@@ -641,14 +641,16 @@ export class Match {
       if (p.isGK() && this.ballInGoalKeeperHands) continue;
       const dx = b.x - p.x, dy = b.y - p.y;
       const d = Math.hypot(dx, dy);
-      const lowReach = p.state === 'slide' ? 1.5 : 0.68;
-      let reach = b.z < 0.4 ? lowReach : b.z < 1.2 ? 0.55 : 0;
+      // controlled players get a generous reach (scaled by the pass assist) so receiving and winning loose balls feels fair
+      const help = p.human >= 0 ? 0.35 + 0.55 * this.cfg.assist.pass : 0;
+      const lowReach = (p.state === 'slide' ? 1.5 : 0.68) + help;
+      let reach = b.z < 0.4 ? lowReach : b.z < 1.2 ? 0.55 + help * 0.6 : 0;
       if (p.isGK()) reach = Math.max(reach, 0);
       if (reach <= 0 || d > reach) continue;
       // skill-dependent contest score
       const a = p.data.attrs;
       const score = (1 - d / reach) * 0.5 + (a.reactions + a.ballControl) / 400 + this.rng.next() * 0.3
-        + (this.passInfo && this.passInfo.receiver === p ? 0.25 : 0)
+        + (this.passInfo && this.passInfo.receiver === p ? 0.25 : 0) + (p.human >= 0 ? 0.3 : 0)
         + (this.lastTouch && this.lastTouch.side === p.side ? 0 : (a.interceptions / 400));
       if (score > bestScore) { bestScore = score; best = p; }
     }
@@ -658,7 +660,7 @@ export class Match {
     const a = p.data.attrs;
     const relSpeed = Math.hypot(b.vx - p.vx, b.vy - p.vy) + Math.abs(b.vz) * 0.3;
     const isOpp = this.lastTouch !== null && this.lastTouch.side !== p.side;
-    const limit = 7 + 15 * (a.ballControl / 100) + (isOpp ? 0 : 3) + (p.intent.precise ? 2 : 0);
+    const limit = 7 + 15 * (a.ballControl / 100) + (isOpp ? 0 : 3) + (p.intent.precise ? 2 : 0) + (p.human >= 0 ? 8 : 0);
     // speculative lunge/slide reach from fast ball: block rather than control
     if (relSpeed <= limit) {
       this.takeControl(p, relSpeed, limit);
@@ -696,7 +698,7 @@ export class Match {
     const a = p.data.attrs;
     // first-touch quality: heavy touch when the pass was hard or the player is poor
     const q = clamp01(1 - relSpeed / (limit + 4)) * 0.6 + (a.ballControl / 100) * 0.5 - pressureLocal(this, p) * 0.25;
-    const heavy = this.rng.next() > q + 0.35 && relSpeed > 6;
+    const heavy = this.rng.next() > q + (p.human >= 0 ? 0.7 : 0.35) && relSpeed > (p.human >= 0 ? 10 : 6);
     const prev = this.lastTouch;
     const wasOpp = prev !== null && prev.side !== p.side;
     this.setTouch(p);

@@ -44,7 +44,7 @@ export function matchConfigFromSettings(over: Partial<MatchConfig> = {}, touch =
     ...defaultMatchConfig(), seed: `m${Date.now()}`, halfLength: g.halfLength, difficulty: g.difficulty, refStrictness: g.refStrictness, offside: g.offside, foulFrequency: g.foulFrequency,
     injuries: g.injuries, fatigue: g.fatigue, dynamicDifficulty: g.dynamicDifficulty, var: g.var, extraTime: g.extraTimeAndPens, penalties: g.extraTimeAndPens,
     weather: pick(g.weather, ['clear', 'clear', 'rain', 'fog', 'snow'] as const), timeOfDay: pick(g.timeOfDay, ['day', 'dusk', 'night'] as const), stadiumStyle: g.stadium === 'random' ? Math.floor(Math.random() * 8) : g.stadium,
-    assist, loadout: s.controls.skillLoadout, loadoutOverrides: s.controls.skillOverrides, ...over,
+    assist, loadout: s.controls.skillLoadout, loadoutAlt: s.controls.skillLoadoutAlt, loadoutOverrides: s.controls.skillOverrides, ...over,
   };
 }
 

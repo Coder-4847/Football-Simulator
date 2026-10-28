@@ -160,3 +160,12 @@ canvas { display: block; touch-action: none; outline: none; }
 .prompts { bottom: calc(var(--safe-b) + 14px); background: rgba(10,15,22,.72); border: 1px solid rgba(140,170,210,.16); backdrop-filter: blur(6px); }
 .skip-chip { border-radius: 999px; }
 .lineup { background: radial-gradient(900px 500px at 50% 50%, rgba(5,8,12,.55), rgba(5,8,12,.9)); }
+
+.pcard { flex-wrap: wrap; max-width: min(420px, 60vw); }
+.pcard .who { min-width: 150px; }
+.pcard .skills { display: flex; flex-wrap: wrap; gap: 4px 6px; margin-top: 7px; max-width: 280px; }
+.pcard .skills:empty { display: none; }
+.pcard .sk { font-size: 11px; color: var(--text); background: rgba(255,255,255,.08); border-radius: 6px; padding: 2px 7px 2px 3px; white-space: nowrap; }
+.pcard .sk.alt { background: rgba(59,158,255,.22); } .pcard .sk.hint { color: var(--text-dim); background: none; padding-left: 4px; }
+.pcard .sk kbd { background: var(--surface-3); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; margin-right: 4px; font-family: inherit; font-size: 10px; }
+.ticker { bottom: calc(var(--safe-b) + 150px); }

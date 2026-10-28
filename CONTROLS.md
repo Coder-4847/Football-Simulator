@@ -16,7 +16,7 @@ Controls are mapped to the same abstract actions on every device; on-screen prom
 | First-time | LT + A/B/Y while the ball arrives | Space + action | tap as the ball arrives |
 | Sprint | RT | Shift (left hand) | SPRINT |
 | Precision dribble / shield | LT | Space (or Ctrl) | SHIELD |
-| Skill moves (your 4 chosen) | Right-stick flicks | U / O / M / . (right hand), arrow keys, 1–4 | SKILL then flick on the right pad, or 4 skill buttons |
+| Skill moves (your 4 chosen) | Right stick: push up / right / down / left (roll the stick for chains) · hold LB + push for a second set of 4 | U / O / M / . (right hand), arrow keys, 1–4 · hold Q for the second set | SKILL then flick on the right pad, or 4 skill buttons |
 | Run / call for pass | RB | E | RUN |
 | Pause | Start | Esc / P | II |
 
@@ -40,3 +40,5 @@ LB/RB (Q/E) dive left/right, Y/K rush out, A/J throw, X/L kick. Keeper assist (S
 Low cross is Q+L (not Shift+L) because Shift is sprint; see DECISIONS.md.
 
 **Skip:** during goal celebrations/replays, injury stoppages, and while a corner/free kick/throw-in/kick-off is being set up, press ✕ (gamepad), L1 + R1 together (Q + E on keyboard), Enter, or tap the on-screen Skip chip to jump straight to the restart.
+
+**Skill moves like a console game:** push the right stick (fast or slow) while you have the ball. Each direction is one of your four chosen moves; hold LB (Q on keyboard) to use a second set of four. Players too unskilled for a chosen move automatically perform the best move they can do. The player card at the bottom-left shows what each direction does. Both sets are editable in Settings → Controls.

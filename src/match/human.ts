@@ -49,6 +49,7 @@ export function updateHumans(m: Match, dt: number): void {
       // dead ball: non-takers move freely but not into the opposing set-piece zone (AI handles takers)
     }
 
+    autoReceive(m, h, p);
     if (ctx === 'attack') attackControls(m, h, i, p);
     else if (ctx === 'defend') defendControls(m, h, i, p);
     else if (ctx === 'keeper') keeperControls(m, h, i, p);
@@ -56,6 +57,25 @@ export function updateHumans(m: Match, dt: number): void {
 
     // buffered pass/shoot for the ball that is about to arrive handled in attackControls via h.queued
   }
+}
+
+
+/** Auto-receive: when a pass is on its way to the controlled player and the stick is idle, run onto the ball. */
+function autoReceive(m: Match, h: HumanSlot, p: MPlayer): void {
+  const pi = m.passInfo;
+  if (!pi || pi.receiver !== p || pi.completed || m.owner === p || m.time - pi.time > 3) return;
+  const inp = h.input;
+  if (Math.hypot(inp.mx, inp.my) > 0.2) return;
+  const strength = m.cfg.assist.pass;
+  if (strength < 0.15) return;
+  const b = m.ball;
+  const t = clamp(Math.hypot(b.x - p.x, b.y - p.y) / Math.max(6, p.speed + 5), 0.1, 1.4);
+  const at = m.ballAt(t);
+  const dx = at.x - p.x, dy = at.y - p.y, d = Math.hypot(dx, dy);
+  if (d < 0.6) return;
+  const it = p.intent;
+  const w = Math.min(1, 0.4 + strength * 0.6);
+  it.mx = (dx / d) * w; it.my = (dy / d) * w; it.sprint = d > 4;
 }
 
 // ---------- selection ----------
@@ -155,7 +175,7 @@ export function pickPassTarget(m: Match, p: MPlayer, sx: number, sy: number, kin
   const dir = team.dir;
   const has = Math.hypot(sx, sy) > 0.25;
   const ang = has ? Math.atan2(sy, sx) : (p.speed > 1 ? Math.atan2(p.vy, p.vx) : p.face);
-  const cone = 0.7 + assist * 0.9; // radians half-angle
+  const cone = 0.8 + assist * 1.1; // radians half-angle
   let best: MPlayer | null = null; let bs = -1e9;
   const offLine = secondLastDepth(m, p.side);
   for (const t of team.players) {
@@ -200,9 +220,12 @@ function shotAim(m: Match, p: MPlayer, h: HumanSlot, power: number): { aimY: num
   } else if (assist > 0) {
     // stick pulls the shot toward the corner on that side, and snaps to a sensible spot inside the frame
     aimY = clamp(aimY * (1 + assist * 0.35), -0.92, 0.92);
-    if (Math.abs(aimY) > 0.35) aimY = Math.sign(aimY) * lerpN(Math.abs(aimY), 0.78, assist * 0.5);
+    if (Math.abs(aimY) > 0.3) aimY = Math.sign(aimY) * lerpN(Math.abs(aimY), 0.8, assist * 0.7);
+    // keep the shot away from a keeper standing on that side
+    const gk = m.keeperOf(other(p.side));
+    if (gk && Math.abs(gk.y * dir - aimY * HALF_GOAL) < 1.1 && assist > 0.4) aimY = clamp(aimY + (gk.y * dir > aimY * HALF_GOAL ? -0.45 : 0.45), -0.9, 0.9);
   }
-  const aimH = clamp(0.25 + 0.3 * power + 0.25 * (inp.mx * dir), 0.1, 0.95);
+  const aimH = clamp(0.25 + 0.3 * power + 0.25 * (inp.mx * dir), assist > 0.4 ? 0.18 : 0.1, assist > 0.4 ? 0.8 : 0.95);
   return { aimY, aimH };
 }
 
@@ -223,7 +246,10 @@ function attackControls(m: Match, h: HumanSlot, idx: number, p: MPlayer): void {
 
   // skills
   if (hasBall && (inp.skillSlot >= 0 || inp.skillMoveId)) {
-    const loadout = resolveLoadout(m.cfg.loadout, m.cfg.loadoutOverrides[p.data.id], p.data.skillMoves);
+    // holding the left shoulder / modifier during a flick uses the second set
+    const loadout = inp.down.modA
+      ? resolveLoadout(m.cfg.loadoutAlt, undefined, p.data.skillMoves)
+      : resolveLoadout(m.cfg.loadout, m.cfg.loadoutOverrides[p.data.id], p.data.skillMoves);
     const move = inp.skillMoveId ? skillById(inp.skillMoveId) ?? null : loadout[inp.skillSlot] ?? null;
     if (move) {
       const fx = Math.hypot(inp.rx, inp.ry) > 0.3 ? inp.rx : inp.mx;

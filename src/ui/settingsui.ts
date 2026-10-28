@@ -201,11 +201,12 @@ export function skillCard(): HTMLElement {
   const card = h('div', { class: 'card', style: 'margin-top:16px' });
   let stars = 5;
   let slot = 0;
+  let alt = false;
   const render = (): void => {
     clear(card);
     const c = settings.value.controls;
-    const lo = c.skillLoadout;
-    card.appendChild(h('div', { class: 'row wrap', style: 'justify-content:space-between' }, h('h3', null, 'Skill move loadout (pick any 4)'),
+    const lo = alt ? c.skillLoadoutAlt : c.skillLoadout;
+    card.appendChild(h('div', { class: 'row wrap', style: 'justify-content:space-between' }, h('h3', null, 'Skill move loadout (pick any 4)'), h('div', { class: 'seg' }, h('button', { class: alt ? '' : 'on', onclick: (): void => { alt = false; render(); } }, 'Right-stick flick'), h('button', { class: alt ? 'on' : '', onclick: (): void => { alt = true; render(); } }, 'Hold LB / Q + flick')),
       h('div', { class: 'row' }, h('span', { class: 'muted' }, 'Show moves up to'), h('div', { class: 'seg' }, [1, 2, 3, 4, 5].map((n) => h('button', { class: stars === n ? 'on' : '', onclick: (): void => { stars = n; render(); } }, '★'.repeat(n)))))));
     card.appendChild(h('div', { class: 'row wrap', style: 'margin:12px 0' }, [0, 1, 2, 3].map((i) => {
       const mv = skillById(lo[i] ?? '');
@@ -217,7 +218,7 @@ export function skillCard(): HTMLElement {
       for (const mv of SKILL_MOVES.filter((m) => m.stars === st)) {
         const bound = c.skillBindings[mv.id];
         col.appendChild(h('div', { class: 'row', style: 'gap:6px' },
-          h('button', { class: 'btn small grow' + (lo.includes(mv.id) ? ' primary' : ''), title: mv.desc, onclick: (): void => { settings.update((s) => { const prev = s.controls.skillLoadout.indexOf(mv.id); if (prev >= 0) s.controls.skillLoadout[prev] = s.controls.skillLoadout[slot]!; s.controls.skillLoadout[slot] = mv.id; }); render(); } }, mv.name),
+          h('button', { class: 'btn small grow' + (lo.includes(mv.id) ? ' primary' : ''), title: mv.desc, onclick: (): void => { settings.update((s) => { const arr = alt ? s.controls.skillLoadoutAlt : s.controls.skillLoadout; const prev = arr.indexOf(mv.id); if (prev >= 0) arr[prev] = arr[slot]!; arr[slot] = mv.id; }); render(); } }, mv.name),
           h('button', { class: 'btn small ghost', title: 'Rebind this move\'s flick gesture', onclick: (ev: MouseEvent): void => captureGesture(mv.id, ev.currentTarget as HTMLElement) }, bound ? bound.split('').map((d) => ({ U: '↑', D: '↓', L: '←', R: '→' })[d]).join('') : mv.pattern.map((d) => ({ U: '↑', D: '↓', L: '←', R: '→' })[d]).join(''))));
       }
       grid.appendChild(col);

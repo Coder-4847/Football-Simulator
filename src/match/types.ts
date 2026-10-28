@@ -61,6 +61,7 @@ export interface MatchConfig {
   assist: { pass: number; shot: number; cross: number; keeper: number; aim: number; autoSwitch: boolean };
   /** skill-move loadout (global) and per-player overrides */
   loadout: string[];
+  loadoutAlt: string[];
   loadoutOverrides: Record<string, string[]>;
   /** headless: no pauses, auto-handle UI prompts */
   headless: boolean;
@@ -72,8 +73,8 @@ export const defaultMatchConfig = (): MatchConfig => ({
   seed: 'match', halfLength: 5, difficulty: 'Professional', weather: 'clear', timeOfDay: 'day', stadiumStyle: 0,
   refStrictness: 0.5, offside: true, foulFrequency: 1, injuries: true, fatigue: true, knockout: false, extraTime: true, penalties: true,
   var: false, maxSubs: 5, subWindows: 3, dynamicDifficulty: false,
-  assist: { pass: 0.7, shot: 0.55, cross: 0.65, keeper: 0.6, aim: 0.45, autoSwitch: true },
-  loadout: ['body-feint', 'step-over', 'flip-flap', 'spin-turn'], loadoutOverrides: {}, headless: false,
+  assist: { pass: 0.85, shot: 0.75, cross: 0.8, keeper: 0.6, aim: 0.65, autoSwitch: true },
+  loadout: ['body-feint', 'step-over', 'flip-flap', 'spin-turn'], loadoutAlt: ['ball-roll', 'drag-back', 'hop-over', 'fake-shot'], loadoutOverrides: {}, headless: false,
 });
 
 export type Phase =
